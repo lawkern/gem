@@ -124,5 +124,24 @@ main(int argument_count, char **arguments)
       disassemble_stream(rom.memory, 0x150, rom.size - 0x150);
    }
 
+   register_b = 0x13;
+   add(register_b);
+   add(register_b);
+   add(register_b);
+
+   register_c = 0x50;
+   add(register_c);
+   add(register_c);
+   add(register_c);
+   add(register_c);
+   add(register_c);
+
+   register_d = 0x05;
+   sub(register_d);
+   sub(register_d);
+   sub(register_d);
+   sub(register_d);
+   sub(register_d);
+
    return(0);
 }

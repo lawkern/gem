@@ -993,3 +993,114 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
       printf("\n");
    }
 }
+
+static unsigned char register_a;
+static unsigned char register_b;
+static unsigned char register_c;
+static unsigned char register_d;
+static unsigned char register_e;
+static unsigned char register_f;
+static unsigned char register_h;
+static unsigned char register_l;
+
+static unsigned short register_pc;
+static unsigned short register_sp;
+
+#define FLAG_Z_BIT 7
+#define FLAG_N_BIT 6
+#define FLAG_H_BIT 5
+#define FLAG_C_BIT 4
+
+#define FLAG_Z ((register_f >> FLAG_Z_BIT) & 0x1)
+#define FLAG_N ((register_f >> FLAG_N_BIT) & 0x1)
+#define FLAG_H ((register_f >> FLAG_H_BIT) & 0x1)
+#define FLAG_C ((register_f >> FLAG_C_BIT) & 0x1)
+
+#define FLAG_Z_MASK (1 << FLAG_Z_BIT)
+#define FLAG_N_MASK (1 << FLAG_N_BIT)
+#define FLAG_H_MASK (1 << FLAG_H_BIT)
+#define FLAG_C_MASK (1 << FLAG_C_BIT)
+
+#define REGISTER_BC (((unsigned short)register_b << 8) | (unsigned short)register_c)
+#define REGISTER_DE (((unsigned short)register_d << 8) | (unsigned short)register_e)
+#define REGISTER_HL (((unsigned short)register_h << 8) | (unsigned short)register_l)
+#define REGISTER_AF (((unsigned short)register_a << 8) | (unsigned short)register_f)
+
+static void
+add(unsigned char value)
+{
+   // NOTE(law): Compute these values before updating register A for use in the
+   // flag calculations.
+   unsigned short extended_sum = (unsigned short)register_a + (unsigned short)value;
+   unsigned char half_sum = (register_a & 0xF) + (value & 0xF);
+
+   register_a = (unsigned char)extended_sum;
+
+   // NOTE(law): Clear the flags to zero.
+   register_f = 0;
+
+   // NOTE(law): Set the Zero flag bit if the result of the computation produced
+   // a zero.
+   if(register_a == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+
+   // NOTE(law): Always unset the Subtraction flag during an ADD operation (This
+   // is actually a no-op, since the flag is cleared up top).
+   register_f &= ~FLAG_N_MASK;
+
+   // NOTE(law): Set the Half Carry flag if adding the low 4 bits of register A
+   // and the incoming value sets bit 5 of the resulting sum.
+   if((half_sum & 0x10) == 0x10)
+   {
+      register_f |= FLAG_H_MASK;
+   }
+
+   // NOTE(law): Set the Carry flag if adding the full 8 bits of register A and
+   // the incoming value would create a sum greater than the maximum byte value
+   // 0xFF (assuming the types used avoided an overflow).
+   if(extended_sum > 0xFF)
+   {
+      register_f |= FLAG_C_MASK;
+   }
+}
+
+static void
+sub(unsigned char value)
+{
+   // NOTE(law): Compute these values before updating register A for use in the
+   // flag calculations.
+   bool is_negative = (signed char)register_a < (signed char)value;
+   bool is_half_negative = (signed char)(register_a & 0xF) < (signed)(value & 0xF);
+
+   register_a -= value;
+
+   // NOTE(law): Clear the flags to zero.
+   register_f = 0;
+
+   // NOTE(law): Set the Zero flag bit if the result of the computation produced
+   // a zero.
+   if(register_a == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+
+   // NOTE(law): Always the Subtraction flag during a SUB operation.
+   register_f |= FLAG_N_MASK;
+
+   // NOTE(law): Set the Half Carry flag if subtracting the low 4 bits of the
+   // incoming value from the low 4 bits of register A results in a negative
+   // number.
+   if(is_half_negative)
+   {
+      register_f |= FLAG_H_MASK;
+   }
+
+   // NOTE(law): Set the Carry flag if subtracting the the incoming value from
+   // register A results in a negative number.
+   if(is_negative)
+   {
+      register_f |= FLAG_C_MASK;
+   }
+}
