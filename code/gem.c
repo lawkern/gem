@@ -183,7 +183,7 @@ void dump_cartridge_header(Cartridge_Header *header)
       [0xFF] = "HuC1+RAM+BATTERY",
    };
 
-   assert(header->cartridge_type < ARRAY_LENGTH(cartridge_types));
+   // assert(header->cartridge_type < ARRAY_LENGTH(cartridge_types));
    printf("  CARTRIDGE TYPE: %#x (%s)\n", header->cartridge_type, cartridge_types[header->cartridge_type]);
    printf("  ROM SIZE: %u KiB\n", 32 * (1 << header->rom_size));
 
@@ -625,9 +625,9 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0xF2: {printf("LD\tA, (FF00 + C)");} break;
             case 0xE2: {printf("LD\t(FF00 + C), A");} break;
 
-            case 0x16: {printf("LD\tD, 0x%02x)", stream[offset++]);} break;
-            case 0x26: {printf("LD\tH), 0x%02x)", stream[offset++]);} break;
-            case 0x36: {printf("LD\t(HL), 0x%02x)", stream[offset++]);} break;
+            case 0x16: {printf("LD\tD, 0x%02x", stream[offset++]);} break;
+            case 0x26: {printf("LD\tH, 0x%02x", stream[offset++]);} break;
+            case 0x36: {printf("LD\t(HL), 0x%02x", stream[offset++]);} break;
 
             case 0x0A: {printf("LD\tA, (BC)");} break;
             case 0x1A: {printf("LD\tA, (DE)");} break;
