@@ -3,10 +3,35 @@
 /* /////////////////////////////////////////////////////////////////////////// */
 
 #include <assert.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 
+typedef struct
+{
+   size_t size;
+   unsigned char *memory;
+} Platform_File;
+
+#define PLATFORM_LOAD_FILE(name) Platform_File name(char *file_path)
+#define PLATFORM_FREE_FILE(name) void name(Platform_File file)
+
+static PLATFORM_LOAD_FILE(load_file);
+static PLATFORM_FREE_FILE(free_file);
+
 #define ARRAY_LENGTH(array) (sizeof(array) / sizeof((array)[0]))
+
+static unsigned short
+endian_swap16(unsigned short value)
+{
+   // TODO(law): For now, we're just assuming the host machine is little
+   // endian. In the future, it might be worthwhile to test endianess first and
+   // allow the values to pass through unmodified if this ever runs on a big
+   // endian machine (i.e. the same byte order of the Game Boy).
+
+   unsigned short result = ((value << 8) & 0xFF00) | ((value >> 8) & 0x00FF);
+   return(result);
+}
 
 #pragma pack(push, 1)
 typedef struct
@@ -41,112 +66,163 @@ typedef struct
 } Cartridge_Header;
 #pragma pack(pop)
 
-static unsigned char global_logo[] =
+static Cartridge_Header *
+get_cartridge_header(unsigned char *rom_memory)
 {
-   0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
-   0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E, 0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
-   0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
-};
-
-static char *global_sram_sizes[] =
-{
-   "0 (no RAM)",
-   "- (Unused)",
-   "8 KiB (1 bank)",
-   "32 KiB (4 banks of 8 KiB each)",
-   "128 KiB (16 banks of 8 KiB each)",
-   "64 KiB (8 banks of 8 KiB each)",
-};
-
-static char *global_destination_codes[] =
-{
-   "Japan (and possibly overseas)",
-   "Overseas only",
-};
-
-static char *global_cartridge_types[] =
-{
-   [0x00] = "ROM ONLY",
-   [0x01] = "MBC1",
-   [0x02] = "MBC1+RAM",
-   [0x03] = "MBC1+RAM+BATTERY",
-   [0x05] = "MBC2",
-   [0x06] = "MBC2+BATTERY",
-   [0x08] = "ROM+RAM 1",
-   [0x09] = "ROM+RAM+BATTERY 1",
-   [0x0B] = "MMM01",
-   [0x0C] = "MMM01+RAM",
-   [0x0D] = "MMM01+RAM+BATTERY",
-   [0x0F] = "MBC3+TIMER+BATTERY",
-   [0x10] = "MBC3+TIMER+RAM+BATTERY 2",
-   [0x11] = "MBC3",
-   [0x12] = "MBC3+RAM 2",
-   [0x13] = "MBC3+RAM+BATTERY 2",
-   [0x19] = "MBC5",
-   [0x1A] = "MBC5+RAM",
-   [0x1B] = "MBC5+RAM+BATTERY",
-   [0x1C] = "MBC5+RUMBLE",
-   [0x1D] = "MBC5+RUMBLE+RAM",
-   [0x1E] = "MBC5+RUMBLE+RAM+BATTERY",
-   [0x20] = "MBC6",
-   [0x22] = "MBC7+SENSOR+RUMBLE+RAM+BATTERY",
-   [0xFC] = "POCKET CAMERA",
-   [0xFD] = "BANDAI TAMA5",
-   [0xFE] = "HuC3",
-   [0xFF] = "HuC1+RAM+BATTERY",
-};
-
-typedef struct
-{
-   size_t size;
-   unsigned char *memory;
-} Platform_File;
-
-static Platform_File
-load_file(char *path)
-{
-   Platform_File result = {0};
-
-   FILE *file = fopen(path, "rb");
-   if(file)
-   {
-      fseek(file, 0, SEEK_END);
-      size_t size = ftell(file);
-      fseek(file, 0, SEEK_SET);
-
-      if(size > 0)
-      {
-         result.memory = malloc(size);
-         if(result.memory)
-         {
-            size_t bytes_read = fread(result.memory, 1, size, file);
-            if(bytes_read == size)
-            {
-               result.size = size;
-            }
-            else
-            {
-               free(result.memory);
-            }
-         }
-      }
-
-      fclose(file);
-   }
-
+   Cartridge_Header *result = (Cartridge_Header *)(rom_memory + 0x100);
    return(result);
 }
 
-static unsigned short
-endian_swap16(unsigned short value)
+static bool
+validate_cartridge_header(unsigned char *rom_memory, size_t rom_size)
 {
-   // TODO(law): For now, we're just assuming the host machine is little
-   // endian. In the future, it might be worthwhile to test endianess first and
-   // allow the values to pass through unmodified if this ever runs on a big
-   // endian machine (i.e. the same byte order of the Game Boy).
+   Cartridge_Header *header = get_cartridge_header(rom_memory);
 
-   unsigned short result = ((value << 8) & 0xFF00) | ((value >> 8) & 0x00FF);
-   return(result);
+   static unsigned char logo[] =
+   {
+      0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
+      0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E, 0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
+      0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
+   };
+
+   // NOTE(law): Confirm that the cartridge stored the Game Boy logo correctly.
+   printf("Verifying logo...\n");
+
+   assert(ARRAY_LENGTH(logo) == ARRAY_LENGTH(header->logo));
+   for(unsigned int byte_index = 0; byte_index < ARRAY_LENGTH(logo); ++byte_index)
+   {
+      // TODO(law): CGB and later models noly check the top half of the logo,
+      // i.e. th first 0x18 bytes.
+
+      if(logo[byte_index] != header->logo[byte_index])
+      {
+         fprintf(stderr, "ERROR: Logo mismatch at byte index %d ", byte_index);
+         fprintf(stderr, "(header: 0x%02x, expected: 0x%02x)\n", header->logo[byte_index], logo[byte_index]);
+
+         return(false);
+      }
+   }
+
+   printf("Verifying checksums...\n");
+
+   unsigned char header_checksum = 0;
+   for(unsigned short byte_offset = 0x0134; byte_offset <= 0x014C; ++byte_offset)
+   {
+      header_checksum = header_checksum - rom_memory[byte_offset] - 1;
+   }
+
+   if(header_checksum != header->header_checksum)
+   {
+      fprintf(stderr, "ERROR: Computed header checksum did not match value in header. ");
+      fprintf(stderr, "(header: 0x%02x, computed: 0x%02x.\n", header_checksum, header->header_checksum);
+
+      return(false);
+   }
+
+   unsigned short global_checksum = 0;
+   for(unsigned int byte_offset = 0; byte_offset < rom_size; ++byte_offset)
+   {
+      global_checksum += (unsigned short)rom_memory[byte_offset];
+   }
+
+   global_checksum -= ((header->global_checksum >> 0) & 0x00FF);
+   global_checksum -= ((header->global_checksum >> 8) & 0x00FF);
+
+   header->global_checksum = endian_swap16(header->global_checksum);
+
+   if(global_checksum != header->global_checksum)
+   {
+      // NOTE(law): The global checksum is not verified by the majority of games
+      // (Pokemon Stadium's GB Tower emulator is an exception).
+      fprintf(stderr, "WARNING: Computed global checksum did not match value in header. ");
+      fprintf(stderr, "(header: 0x%04x, computed: %0x04x)\n", header->global_checksum, global_checksum);
+   }
+
+   return(true);
+}
+
+static
+void dump_cartridge_header(Cartridge_Header *header)
+{
+   printf("CARTRIDGE HEADER:\n");
+
+   printf("  ENTRY POINT: 0x%08x\n", header->entry_point);
+
+   printf("  TITLE: %s\n", header->title);
+   printf("  SGB FLAG: 0x%02x\n", header->sgb_flag);
+
+   static char *cartridge_types[] =
+   {
+      [0x00] = "ROM ONLY",
+      [0x01] = "MBC1",
+      [0x02] = "MBC1+RAM",
+      [0x03] = "MBC1+RAM+BATTERY",
+      [0x05] = "MBC2",
+      [0x06] = "MBC2+BATTERY",
+      [0x08] = "ROM+RAM 1",
+      [0x09] = "ROM+RAM+BATTERY 1",
+      [0x0B] = "MMM01",
+      [0x0C] = "MMM01+RAM",
+      [0x0D] = "MMM01+RAM+BATTERY",
+      [0x0F] = "MBC3+TIMER+BATTERY",
+      [0x10] = "MBC3+TIMER+RAM+BATTERY 2",
+      [0x11] = "MBC3",
+      [0x12] = "MBC3+RAM 2",
+      [0x13] = "MBC3+RAM+BATTERY 2",
+      [0x19] = "MBC5",
+      [0x1A] = "MBC5+RAM",
+      [0x1B] = "MBC5+RAM+BATTERY",
+      [0x1C] = "MBC5+RUMBLE",
+      [0x1D] = "MBC5+RUMBLE+RAM",
+      [0x1E] = "MBC5+RUMBLE+RAM+BATTERY",
+      [0x20] = "MBC6",
+      [0x22] = "MBC7+SENSOR+RUMBLE+RAM+BATTERY",
+      [0xFC] = "POCKET CAMERA",
+      [0xFD] = "BANDAI TAMA5",
+      [0xFE] = "HuC3",
+      [0xFF] = "HuC1+RAM+BATTERY",
+   };
+
+   assert(header->cartridge_type < ARRAY_LENGTH(cartridge_types));
+   printf("  CARTRIDGE TYPE: %#x (%s)\n", header->cartridge_type, cartridge_types[header->cartridge_type]);
+   printf("  ROM SIZE: %u KiB\n", 32 * (1 << header->rom_size));
+
+   static char *sram_sizes[] =
+   {
+      "0 (no RAM)",
+      "- (Unused)",
+      "8 KiB (1 bank)",
+      "32 KiB (4 banks of 8 KiB each)",
+      "128 KiB (16 banks of 8 KiB each)",
+      "64 KiB (8 banks of 8 KiB each)",
+   };
+
+   assert(header->ram_size < ARRAY_LENGTH(sram_sizes));
+   printf("  RAM SIZE: %s\n", sram_sizes[header->ram_size]);
+
+   static char *destination_codes[] =
+   {
+      "Japan (and possibly overseas)",
+      "Overseas only",
+   };
+
+   assert(header->destination_code < ARRAY_LENGTH(destination_codes));
+   printf("  DESTINATION CODE: %#x (%s)\n", header->destination_code, destination_codes[header->destination_code]);
+
+   if(header->old_licensee_code == 0x33)
+   {
+      printf("  OLD LICENSEE CODE: UNUSED\n");
+      printf("  NEW LICENSEE CODE: %.*s\n", 2, header->new_licensee_code);
+   }
+   else
+   {
+      printf("  OLD LICENSEE CODE: %#x\n", header->old_licensee_code);
+      printf("  NEW LICENSEE CODE: UNUSED\n");
+   }
+
+   printf("  MASK ROM VERSION NUMBER: %#x\n", header->mask_rom_version_number);
+   printf("  HEADER CHECKSUM: 0x%02x\n", header->header_checksum);
+   printf("  GLOBAL CHECKSUM: 0x%04x\n", header->global_checksum);
 }
 
 static void
@@ -160,7 +236,7 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
    while((offset - start) < byte_count)
    {
       // NOTE(law): Print the address of the current instruction.
-      printf("  %# 06x  ", offset);
+      printf("  0x%06x  ", offset);
 
       unsigned char opcode = stream[offset++];
       if(opcode == 0xCB)
@@ -549,9 +625,9 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0xF2: {printf("LD\tA, (FF00 + C)");} break;
             case 0xE2: {printf("LD\t(FF00 + C), A");} break;
 
-            case 0x16: {printf("LD\tD, %#04x)", stream[offset++]);} break;
-            case 0x26: {printf("LD\tH), %#04x)", stream[offset++]);} break;
-            case 0x36: {printf("LD\t(HL), %#04x)", stream[offset++]);} break;
+            case 0x16: {printf("LD\tD, 0x%02x)", stream[offset++]);} break;
+            case 0x26: {printf("LD\tH), 0x%02x)", stream[offset++]);} break;
+            case 0x36: {printf("LD\t(HL), 0x%02x)", stream[offset++]);} break;
 
             case 0x0A: {printf("LD\tA, (BC)");} break;
             case 0x1A: {printf("LD\tA, (DE)");} break;
@@ -560,33 +636,33 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             {
                unsigned short operand = *((unsigned short *)(stream + offset));
                offset += 2;
-               printf("LD\tA, (%#06x)", operand);
+               printf("LD\tA, (0x%04x)", operand);
             } break;
 
             case 0x02: {printf("LD\t(BC), A");} break;
             case 0x12: {printf("LD\t(DE), A");} break;
 
-            case 0x0E: {printf("LD\tC, %#04x", stream[offset++]);} break;
-            case 0x1E: {printf("LD\tE, %#04x", stream[offset++]);} break;
-            case 0x2E: {printf("LD\tL, %#04x", stream[offset++]);} break;
-            case 0x3E: {printf("LD\tA, %#04x", stream[offset++]);} break;
+            case 0x0E: {printf("LD\tC, 0x%02x", stream[offset++]);} break;
+            case 0x1E: {printf("LD\tE, 0x%02x", stream[offset++]);} break;
+            case 0x2E: {printf("LD\tL, 0x%02x", stream[offset++]);} break;
+            case 0x3E: {printf("LD\tA, 0x%02x", stream[offset++]);} break;
 
             case 0xEA:
             {
                unsigned short operand = *((unsigned short *)(stream + offset));
                offset += 2;
-               printf("LD\t%#06x, A", operand);
+               printf("LD\t0x%04x, A", operand);
             } break;
 
-            case 0xF0: {printf("LDH\tA, (FF00 + %#04x)", stream[offset++]);} break;
-            case 0xE0: {printf("LDH\t(FF00 + %#04x), A", stream[offset++]);} break;
+            case 0xF0: {printf("LDH\tA, (FF00 + 0x%02x)", stream[offset++]);} break;
+            case 0xE0: {printf("LDH\t(FF00 + 0x%02x), A", stream[offset++]);} break;
 
             case 0x22: {printf("LDI\t(HL), A");} break;
             case 0x32: {printf("LDD\t(HL), A");} break;
             case 0x2A: {printf("LDI\tA, (HL)");} break;
             case 0x3A: {printf("LDD\tA, (HL)");} break;
 
-            case 0x06: {printf("LD\tB, (%#04x)", stream[offset++]);} break;
+            case 0x06: {printf("LD\tB, (0x%02x)", stream[offset++]);} break;
             case 0xF9: {printf("LD\tSP, HL");} break;
 
             case 0xC5: {printf("PUSH\tBC");} break;
@@ -605,35 +681,35 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             {
                unsigned short operand = *((unsigned short *)(stream + offset));
                offset += 2;
-               printf("LD\t%#06x, SP", operand);
-            }
+               printf("LD\t0x%04x, SP", operand);
+            } break;
 
             case 0x01:
             {
                unsigned short operand = *((unsigned short *)(stream + offset));
                offset += 2;
-               printf("LD\tBC, %#06x", operand);
+               printf("LD\tBC, 0x%04x", operand);
             } break;
 
             case 0x11:
             {
                unsigned short operand = *((unsigned short *)(stream + offset));
                offset += 2;
-               printf("LD\tDE, %#06x", operand);
+               printf("LD\tDE, 0x%04x", operand);
             } break;
 
             case 0x21:
             {
                unsigned short operand = *((unsigned short *)(stream + offset));
                offset += 2;
-               printf("LD\tHL, %#06x", operand);
+               printf("LD\tHL, 0x%04x", operand);
             } break;
 
             case 0x31:
             {
                unsigned short operand = *((unsigned short *)(stream + offset));
                offset += 2;
-               printf("LD\tSP, %#06x", operand);
+               printf("LD\tSP, 0x%04x", operand);
             } break;
 
             case 0x0B: {printf("DEC\tBC");} break;
@@ -641,7 +717,7 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0x2B: {printf("DEC\tHL");} break;
             case 0x3B: {printf("DEC\tSP");} break;
 
-            case 0xF8: {printf("LD\tHL, SP + %#04x", stream[offset++]);} break;
+            case 0xF8: {printf("LD\tHL, SP + 0x%02x", stream[offset++]);} break;
 
 
             // NOTE(law): Rotate and Shift instructions
@@ -673,19 +749,19 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0xC6:
             {
                unsigned char operand = *(stream + offset++);
-               printf("ADD\tA, %#04x", operand);
+               printf("ADD\tA, 0x%02x", operand);
             } break;
 
             case 0xE8:
             {
                unsigned char operand = *(stream + offset++);
-               printf("ADD\tSP, %#04x", operand);
+               printf("ADD\tSP, 0x%02x", operand);
             } break;
 
             case 0xCE:
             {
                unsigned char operand = *(stream + offset++);
-               printf("ADC\tA, %#04x", operand);
+               printf("ADC\tA, 0x%02x", operand);
             } break;
 
             case 0x90: {printf("SUB\tA, B");} break;
@@ -700,7 +776,7 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0xD6:
             {
                unsigned char operand = *(stream + offset++);
-               printf("SUB\t%#04x", operand);
+               printf("SUB\t0x%02x", operand);
             } break;
 
             case 0x98: {printf("SBC\tA, B");} break;
@@ -712,7 +788,7 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0x9E: {printf("SBC\tA, (HL)");} break;
             case 0x9F: {printf("SBC\tA, A");} break;
 
-            case 0xDE: {printf("SBC\tA, %#04x", stream[offset++]);} break;
+            case 0xDE: {printf("SBC\tA, 0x%02x", stream[offset++]);} break;
 
             case 0x27: {printf("DAA");} break;
             case 0x2F: {printf("CPL");} break;
@@ -726,7 +802,7 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0xAE: {printf("XOR\t(HL)");} break;
             case 0xAF: {printf("XOR\tA");} break;
 
-            case 0xEE: {printf("XOR\t%#04x", stream[offset++]);} break;
+            case 0xEE: {printf("XOR\t0x%02x", stream[offset++]);} break;
 
             case 0xB0: {printf("OR\tB");} break;
             case 0xB1: {printf("OR\tC");} break;
@@ -737,7 +813,7 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0xB6: {printf("OR\t(HL)");} break;
             case 0xB7: {printf("OR\tA");} break;
 
-            case 0xF6: {printf("OR\t%#04x", stream[offset++]);} break;
+            case 0xF6: {printf("OR\t0x%02x", stream[offset++]);} break;
 
             case 0xA0: {printf("AND\tB");} break;
             case 0xA1: {printf("AND\tC");} break;
@@ -748,7 +824,7 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0xA6: {printf("AND\t(HL)");} break;
             case 0xA7: {printf("AND\tA");} break;
 
-            case 0xE6: {printf("AND\t%#04x", stream[offset++]);} break;
+            case 0xE6: {printf("AND\t0x%02x", stream[offset++]);} break;
 
             case 0xB8: {printf("CP\tB");} break;
             case 0xB9: {printf("CP\tC");} break;
@@ -759,7 +835,7 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0xBE: {printf("CP\t(HL)");} break;
             case 0xBF: {printf("CP\tA");} break;
 
-            case 0xFE: {printf("CP\t%#04x", stream[offset++]);} break;
+            case 0xFE: {printf("CP\t0x%02x", stream[offset++]);} break;
 
             case 0x04: {printf("INC\tB");} break;
             case 0x0C: {printf("INC\tC");} break;
@@ -797,51 +873,51 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0x37: {printf("SCF");} break;
             case 0x00: {printf("NOP");} break;
             case 0x76: {printf("HALT");} break;
-            case 0x10: {printf("STOP\t%#04x", stream[offset++]);} break;
+            case 0x10: {printf("STOP\t0x%02x", stream[offset++]);} break;
             case 0xF3: {printf("DI");} break;
             case 0xFB: {printf("EI");} break;
 
 
             // NOTE(law): Jump instructions
-            case 0x18: {printf("JR\tPC + %#04x", stream[offset++]);} break;
-            case 0x20: {printf("JR\tNZ, PC + %#04x", stream[offset++]);} break;
-            case 0x28: {printf("JR\tZ, PC + %#04x", stream[offset++]);} break;
-            case 0x30: {printf("JR\tNC, PC + %#04x", stream[offset++]);} break;
-            case 0x38: {printf("JR\tC, PC + %#04x", stream[offset++]);} break;
+            case 0x18: {printf("JR\tPC + 0x%02x", stream[offset++]);} break;
+            case 0x20: {printf("JR\tNZ, PC + 0x%02x", stream[offset++]);} break;
+            case 0x28: {printf("JR\tZ, PC + 0x%02x", stream[offset++]);} break;
+            case 0x30: {printf("JR\tNC, PC + 0x%02x", stream[offset++]);} break;
+            case 0x38: {printf("JR\tC, PC + 0x%02x", stream[offset++]);} break;
 
             case 0xC4:
             {
                unsigned short operand = *((unsigned short *)(stream + offset));
                offset += 2;
-               printf("CALL\tNZ, %#06x", operand);
+               printf("CALL\tNZ, 0x%04x", operand);
             } break;
 
             case 0xCC:
             {
                unsigned short operand = *((unsigned short *)(stream + offset));
                offset += 2;
-               printf("CALL\tZ, %#06x", operand);
+               printf("CALL\tZ, 0x%04x", operand);
             } break;
 
             case 0xCD:
             {
                unsigned short operand = *((unsigned short *)(stream + offset));
                offset += 2;
-               printf("CALL\t%#06x", operand);
+               printf("CALL\t0x%04x", operand);
             } break;
 
             case 0xD4:
             {
                unsigned short operand = *((unsigned short *)(stream + offset));
                offset += 2;
-               printf("CALL\tNC, %#06x", operand);
+               printf("CALL\tNC, 0x%04x", operand);
             } break;
 
             case 0xDC:
             {
                unsigned short operand = *((unsigned short *)(stream + offset));
                offset += 2;
-               printf("CALL\tC, %#06x", operand);
+               printf("CALL\tC, 0x%04x", operand);
             } break;
 
             case 0xE9: {printf("JP\tHL");} break;
@@ -858,35 +934,35 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             {
                unsigned short operand = *(unsigned short *)(stream + offset);
                offset += 2;
-               printf("JP\tNZ, %#06x", operand);
+               printf("JP\tNZ, 0x%04x", operand);
             } break;
 
             case 0xC3:
             {
                unsigned short operand = *(unsigned short *)(stream + offset);
                offset += 2;
-               printf("JP\t%#06x", operand);
+               printf("JP\t0x%04x", operand);
             } break;
 
             case 0xCA:
             {
                unsigned short operand = *(unsigned short *)(stream + offset);
                offset += 2;
-               printf("JP\tZ, %#06x", operand);
+               printf("JP\tZ, 0x%04x", operand);
             } break;
 
             case 0xD2:
             {
                unsigned short operand = *(unsigned short *)(stream + offset);
                offset += 2;
-               printf("JP\tNC, %#06x", operand);
+               printf("JP\tNC, 0x%04x", operand);
             } break;
 
             case 0xDA:
             {
                unsigned short operand = *(unsigned short *)(stream + offset);
                offset += 2;
-               printf("JP\tC, %#06x", operand);
+               printf("JP\tC, 0x%04x", operand);
             } break;
 
             case 0xC7: {printf("RST\t00H");} break;
@@ -916,118 +992,4 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
 
       printf("\n");
    }
-
-   printf("END OF DATASTREAM\n");
-}
-
-int
-main(int argument_count, char **arguments)
-{
-   char *program_name = arguments[0];
-
-   if(argument_count < 2)
-   {
-      fprintf(stdout, "USAGE: %s <path to ROM file>\n", program_name);
-      return(0);
-   }
-
-   char *rom_path = arguments[1];
-   printf("Loading ROM at \"%s\"...\n", rom_path);
-
-   Platform_File rom = load_file(rom_path);
-   if(rom.size == 0)
-   {
-      fprintf(stderr, "ERROR: Failed to load ROM at \"%s\"\n", rom_path);
-      return(1);
-   }
-
-   printf("Parsing cartridge header...\n");
-   Cartridge_Header *header = (Cartridge_Header *)(rom.memory + 0x100);
-
-   // NOTE(law): Confirm that the cartridge stored the Game Boy logo correctly.
-   assert(ARRAY_LENGTH(global_logo) == ARRAY_LENGTH(header->logo));
-   for(unsigned int byte_index = 0; byte_index < ARRAY_LENGTH(global_logo); ++byte_index)
-   {
-      if(global_logo[byte_index] != header->logo[byte_index])
-      {
-         fprintf(stderr, "ERROR: Logo mismatch at byte index %d ", byte_index);
-         fprintf(stderr, "(header: %#x, expected: %#x)\n", header->logo[byte_index], global_logo[byte_index]);
-
-         return(1);
-      }
-   }
-
-   printf("Verifying checksums...\n");
-
-   unsigned char header_checksum = 0;
-   for(unsigned short byte_offset = 0x0134; byte_offset <= 0x014C; ++byte_offset)
-   {
-      header_checksum = header_checksum - rom.memory[byte_offset] - 1;
-   }
-
-   if(header_checksum != header->header_checksum)
-   {
-      fprintf(stderr, "ERROR: Computed header checksum did not match value in header. ");
-      fprintf(stderr, "(header: %#x, computed: %#x.\n", header_checksum, header->header_checksum);
-
-      return(1);
-   }
-
-   unsigned short global_checksum = 0;
-   for(unsigned int byte_offset = 0; byte_offset < rom.size; ++byte_offset)
-   {
-      global_checksum += (unsigned short)rom.memory[byte_offset];
-   }
-
-   global_checksum -= ((header->global_checksum >> 0) & 0x00FF);
-   global_checksum -= ((header->global_checksum >> 8) & 0x00FF);
-
-   header->global_checksum = endian_swap16(header->global_checksum);
-
-   if(global_checksum != header->global_checksum)
-   {
-      fprintf(stderr, "WARNING: Computed global checksum did not match value in header. ");
-      fprintf(stderr, "(header: %#06x, computed: %#06x)\n", header->global_checksum, global_checksum);
-   }
-
-   printf("CARTRIDGE HEADER:\n");
-
-   printf("  ENTRY POINT: %#010x\n", header->entry_point);
-
-   printf("  TITLE: %s\n", header->title);
-   printf("  SGB FLAG: %#x\n", header->sgb_flag);
-
-   assert(header->cartridge_type < ARRAY_LENGTH(global_cartridge_types));
-   printf("  CARTRIDGE TYPE: %#x (%s)\n", header->cartridge_type, global_cartridge_types[header->cartridge_type]);
-   printf("  ROM SIZE: %u KiB\n", 32 * (1 << header->rom_size));
-
-   assert(header->ram_size < ARRAY_LENGTH(global_sram_sizes));
-   printf("  RAM SIZE: %s\n", global_sram_sizes[header->ram_size]);
-
-   assert(header->destination_code < ARRAY_LENGTH(global_destination_codes));
-   printf("  DESTINATION CODE: %#x (%s)\n", header->destination_code, global_destination_codes[header->destination_code]);
-
-   if(header->old_licensee_code == 0x33)
-   {
-      printf("  OLD LICENSEE CODE: UNUSED\n");
-      printf("  NEW LICENSEE CODE: %.*s\n", 2, header->new_licensee_code);
-   }
-   else
-   {
-      printf("  OLD LICENSEE CODE: %#x\n", header->old_licensee_code);
-      printf("  NEW LICENSEE CODE: UNUSED\n");
-   }
-
-   printf("  MASK ROM VERSION NUMBER: %#x\n", header->mask_rom_version_number);
-   printf("  HEADER CHECKSUM: %#04x\n", header->header_checksum);
-   printf("  GLOBAL CHECKSUM: %#06x\n", header->global_checksum);
-
-   printf("Parsing entry_point...\n");
-   unsigned int offset = (unsigned char *)&header->entry_point - rom.memory;
-   disassemble_stream(rom.memory, offset, sizeof(header->entry_point));
-
-   printf("Parsing instruction stream...\n");
-   disassemble_stream(rom.memory, 0x150, rom.size - 0x150);
-
-   return(0);
 }

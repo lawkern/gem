@@ -6,6 +6,6 @@ SET LINKER_FLAGS=-incremental:no
 IF NOT EXIST ..\build mkdir ..\build
 PUSHD ..\build
 
-cl ..\code\gem.c %COMPILER_FLAGS% -Fegem /link %LINKER_FLAGS%
+cl ..\code\platform_win32.c %COMPILER_FLAGS% -Fegem /link %LINKER_FLAGS%
 
 POPD
