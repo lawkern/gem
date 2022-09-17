@@ -2,68 +2,54 @@
 /* (c) copyright 2022 Lawrence D. Kern /////////////////////////////////////// */
 /* /////////////////////////////////////////////////////////////////////////// */
 
+#include <windows.h>
+
 #include "gem.c"
-
-static
-PLATFORM_LOAD_FILE(load_file)
-{
-   // TODO(law): Implement with OS-specfic primitives!
-
-   Platform_File result = {0};
-
-   FILE *file = fopen(file_path, "rb");
-   if(!file)
-   {
-      fprintf(stderr, "ERROR: Failed to read file \"%s\"\n", file_path);
-      return(result);
-   }
-
-   fseek(file, 0, SEEK_END);
-   size_t size = ftell(file);
-   fseek(file, 0, SEEK_SET);
-
-   if(size <= 0)
-   {
-      fprintf(stderr, "ERROR: Failed to read file size of \"%s\"\n", file_path);
-      fclose(file);
-
-      return(result);
-   }
-
-   result.memory = malloc(size);
-   if(!result.memory)
-   {
-      fprintf(stderr, "ERROR: Failed to allocate memory for \"%s\"\n", file_path);
-      fclose(file);
-
-      return(result);
-   }
-
-   size_t bytes_read = fread(result.memory, 1, size, file);
-   if(bytes_read != size)
-   {
-      fprintf(stderr, "ERROR: Failed to read file \"%s\"\n", file_path);
-      fclose(file);
-
-      free(result.memory);
-      result.memory = 0;
-
-      return(result);
-   }
-
-   result.size = size;
-   fclose(file);
-
-   return(result);
-}
 
 static
 PLATFORM_FREE_FILE(free_file)
 {
-   // TODO(law): Implement with OS-specfic primitives!
-
    free(file.memory);
    file.size = 0;
+   file.memory = 0;
+}
+
+static
+PLATFORM_LOAD_FILE(load_file)
+{
+   Platform_File result = {0};
+
+   WIN32_FIND_DATAA file_data;
+   HANDLE find_file = FindFirstFileA(file_path, &file_data);
+   if(find_file == INVALID_HANDLE_VALUE)
+   {
+      fprintf(stderr, "ERROR: Failed to find file \"%s\".\n", file_path);
+      return(result);
+   }
+   FindClose(find_file);
+
+   size_t size = (file_data.nFileSizeHigh * (MAXDWORD + 1)) + file_data.nFileSizeLow;
+   result.memory = malloc(size);
+   if(!result.memory)
+   {
+      fprintf(stderr, "ERROR: Failed to allocate memory for file \"%s\".\n", file_path);
+      return(result);
+   }
+
+   HANDLE file = CreateFileA(file_path, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+   DWORD bytes_read;
+   if(ReadFile(file, result.memory, size, &bytes_read, 0) && size == bytes_read)
+   {
+      result.size = size;
+   }
+   else
+   {
+      fprintf(stderr, "Failed to read file \"%s.\"\n", file_path);
+      free_file(result);
+   }
+   CloseHandle(file);
+
+   return(result);
 }
 
 int

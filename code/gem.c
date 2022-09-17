@@ -13,11 +13,11 @@ typedef struct
    unsigned char *memory;
 } Platform_File;
 
-#define PLATFORM_LOAD_FILE(name) Platform_File name(char *file_path)
 #define PLATFORM_FREE_FILE(name) void name(Platform_File file)
+#define PLATFORM_LOAD_FILE(name) Platform_File name(char *file_path)
 
-static PLATFORM_LOAD_FILE(load_file);
 static PLATFORM_FREE_FILE(free_file);
+static PLATFORM_LOAD_FILE(load_file);
 
 #define ARRAY_LENGTH(array) (sizeof(array) / sizeof((array)[0]))
 

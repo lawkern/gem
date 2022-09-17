@@ -9,6 +9,14 @@
 #include "gem.c"
 
 static
+PLATFORM_FREE_FILE(free_file)
+{
+   free(file.memory);
+   file.size = 0;
+   file.memory = 0;
+}
+
+static
 PLATFORM_LOAD_FILE(load_file)
 {
    // TODO(law): Better file I/O once file access is needed anywhere besides
@@ -19,14 +27,14 @@ PLATFORM_LOAD_FILE(load_file)
    struct stat file_information;
    if(stat(file_path, &file_information) == -1)
    {
-      fprintf(stderr, "ERROR: Failed to read file size of file: %s.\n", file_path);
+      fprintf(stderr, "ERROR: Failed to read file size of file: \"%s\".\n", file_path);
       return(result);
    }
 
    int file = open(file_path, O_RDONLY);
    if(file == -1)
    {
-      fprintf(stderr, "ERROR: Failed to open file: %s.\n", file_path);
+      fprintf(stderr, "ERROR: Failed to open file: \"%s\".\n", file_path);
       return(result);
    }
 
@@ -40,19 +48,12 @@ PLATFORM_LOAD_FILE(load_file)
    }
    else
    {
-      fprintf(stderr, "ERROR: Failed to allocate memory for file: %s.\n", file_path);
+      fprintf(stderr, "ERROR: Failed to allocate memory for file: \"%s\".\n", file_path);
    }
 
    close(file);
 
    return(result);
-}
-
-static
-PLATFORM_FREE_FILE(free_file)
-{
-   free(file.memory);
-   file.size = 0;
 }
 
 int
