@@ -73,11 +73,27 @@ main(int argument_count, char **arguments)
 
    if(argument_count < 2)
    {
-      fprintf(stdout, "USAGE: %s <path to ROM file>\n", program_name);
+      fprintf(stdout, "USAGE: %s [-h|-d] <path to ROM file>\n", program_name);
       return(0);
    }
 
-   char *rom_path = arguments[1];
+   bool output_header = false;
+   bool output_disassembly = false;
+
+   if(argument_count > 2)
+   {
+      char *flag = arguments[1];
+      if(flag[0] == '-' && flag[1] == 'h')
+      {
+         output_header = true;
+      }
+      else if(flag[0] == '-' && flag[1] == 'd')
+      {
+         output_disassembly = true;
+      }
+   }
+
+   char *rom_path = arguments[argument_count - 1];
    printf("Loading ROM at \"%s\"...\n", rom_path);
 
    Platform_File rom = load_file(rom_path);
@@ -93,14 +109,20 @@ main(int argument_count, char **arguments)
    }
 
    Cartridge_Header *header = get_cartridge_header(rom.memory);
-   dump_cartridge_header(header);
+   if(output_header)
+   {
+      dump_cartridge_header(header);
+   }
 
-   printf("Parsing entry_point...\n");
-   unsigned int offset = (unsigned char *)&header->entry_point - rom.memory;
-   disassemble_stream(rom.memory, offset, sizeof(header->entry_point));
+   if(output_disassembly)
+   {
+      printf("Parsing entry_point...\n");
+      unsigned int offset = (unsigned char *)&header->entry_point - rom.memory;
+      disassemble_stream(rom.memory, offset, sizeof(header->entry_point));
 
-   printf("Parsing instruction stream...\n");
-   disassemble_stream(rom.memory, 0x150, rom.size - 0x150);
+      printf("Parsing instruction stream...\n");
+      disassemble_stream(rom.memory, 0x150, rom.size - 0x150);
+   }
 
    return(0);
 }
