@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <stdarg.h>
 
 #include "gem.c"
 
@@ -54,6 +55,21 @@ PLATFORM_LOAD_FILE(load_file)
    close(file);
 
    return(result);
+}
+
+static
+PLATFORM_LOG(log)
+{
+   char message[1024];
+
+   va_list arguments;
+   va_start(arguments, format);
+   {
+      vsnprintf(message, sizeof(message), format, arguments);
+   }
+   va_end(arguments);
+
+   printf(message);
 }
 
 int

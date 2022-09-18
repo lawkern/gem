@@ -3,6 +3,7 @@
 /* /////////////////////////////////////////////////////////////////////////// */
 
 #include <windows.h>
+#include <stdarg.h>
 
 #include "gem.c"
 
@@ -52,6 +53,21 @@ PLATFORM_LOAD_FILE(load_file)
    return(result);
 }
 
+static
+PLATFORM_LOG(log)
+{
+   char message[1024];
+
+   va_list arguments;
+   va_start(arguments, format);
+   {
+      vsnprintf(message, sizeof(message), format, arguments);
+   }
+   va_end(arguments);
+
+   printf(message);
+}
+
 int
 main(int argument_count, char **arguments)
 {
@@ -80,7 +96,7 @@ main(int argument_count, char **arguments)
    }
 
    char *rom_path = arguments[argument_count - 1];
-   printf("Loading ROM at \"%s\"...\n", rom_path);
+   log("Loading ROM at \"%s\"...\n", rom_path);
 
    Platform_File rom = load_file(rom_path);
    if(rom.size == 0)
@@ -88,12 +104,12 @@ main(int argument_count, char **arguments)
       return(1);
    }
 
-   printf("Validating cartridge header...\n");
+   log("Validating cartridge header...\n");
    if(!validate_cartridge_header(rom.memory, rom.size))
    {
       return(1);
    }
-   printf("Validated header.\n");
+   log("Validated header.\n");
 
    Cartridge_Header *header = get_cartridge_header(rom.memory);
    if(output_header)
@@ -103,11 +119,11 @@ main(int argument_count, char **arguments)
 
    if(output_disassembly)
    {
-      printf("Parsing entry_point...\n");
+      log("Parsing entry_point...\n");
       unsigned int offset = (unsigned char *)&header->entry_point - rom.memory;
       disassemble_stream(rom.memory, offset, sizeof(header->entry_point));
 
-      printf("Parsing instruction stream...\n");
+      log("Parsing instruction stream...\n");
       disassemble_stream(rom.memory, 0x150, rom.size - 0x150);
    }
 
@@ -117,7 +133,7 @@ main(int argument_count, char **arguments)
    unsigned char *memory_map = malloc(0xFFFF);
    memcpy(memory_map, rom.memory, rom.size);
 
-   printf("Fetching and executing instructions...\n");
+   log("Fetching and executing instructions...\n");
    register_pc = 0x100;
    fetch_and_execute(memory_map); // NOP
    fetch_and_execute(memory_map); // JP
@@ -143,7 +159,7 @@ main(int argument_count, char **arguments)
    handle_interrupts(memory_map);
    fetch_and_execute(memory_map);
 
-   printf("Finished fetching and executing instructions.\n");
+   log("Finished fetching and executing instructions.\n");
 
    return(0);
 }
