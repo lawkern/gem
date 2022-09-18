@@ -7,6 +7,10 @@
 
 #include "gem.c"
 
+static bool win32_global_is_running = true;
+static Platform_File win32_global_rom;
+static unsigned char *win32_global_memory_map;
+
 static
 PLATFORM_FREE_FILE(free_file)
 {
@@ -65,37 +69,99 @@ PLATFORM_LOG(log)
    }
    va_end(arguments);
 
-   printf(message);
+   OutputDebugStringA(message);
+}
+
+LRESULT
+win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+{
+   LRESULT result = 0;
+
+   switch(message)
+   {
+      case WM_CLOSE:
+      {
+         DestroyWindow(window);
+      } break;
+
+      case WM_DESTROY:
+      {
+         win32_global_is_running = false;
+         PostQuitMessage(0);
+      } break;
+
+      case WM_SYSKEYDOWN:
+      case WM_SYSKEYUP:
+      case WM_KEYDOWN:
+      case WM_KEYUP:
+      {
+         bool alt_key_pressed = lparam & (1 << 29);
+         bool key_previously_down = lparam & (1 << 30);
+
+         if(!key_previously_down)
+         {
+            if(wparam == VK_ESCAPE || (alt_key_pressed && wparam == VK_F4))
+            {
+               win32_global_is_running = false;
+            }
+            else if(wparam == 'H')
+            {
+               // NOTE(law): Print the contents of the cartridge header.
+               if(win32_global_rom.memory)
+               {
+                  dump_cartridge_header(win32_global_rom.memory);
+               }
+               else
+               {
+                  log("No cartridge is currently loaded.\n");
+               }
+            }
+            else if(wparam == 'D')
+            {
+               // NOTE(law): Print the disassembly.
+               if(win32_global_rom.memory)
+               {
+                  log("Parsing instruction stream...\n");
+                  disassemble_stream(win32_global_rom.memory, 0, win32_global_rom.size);
+               }
+               else
+               {
+                  log("No cartridge is currently loaded.\n");
+               }
+            }
+            else if(wparam == 'N')
+            {
+               // NOTE(law): Fetch and execute the next instruction.
+               if(win32_global_rom.memory)
+               {
+                  log("Fetching and executing instruction... ");
+
+                  handle_interrupts(win32_global_memory_map);
+                  fetch_and_execute(win32_global_memory_map);
+
+                  log("Done.\n");
+               }
+               else
+               {
+                  log("No cartridge is currently loaded.\n");
+               }
+            }
+         }
+      } break;
+
+      default:
+      {
+         result = DefWindowProc(window, message, wparam, lparam);
+      } break;
+   }
+
+   return(result);
 }
 
 int
-main(int argument_count, char **arguments)
+WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int show_command)
 {
-   char *program_name = arguments[0];
-
-   if(argument_count < 2)
-   {
-      fprintf(stdout, "USAGE: %s [-h|-d] <path to ROM file>\n", program_name);
-      return(0);
-   }
-
-   bool output_header = false;
-   bool output_disassembly = false;
-
-   if(argument_count > 2)
-   {
-      char *flag = arguments[1];
-      if(flag[0] == '-' && flag[1] == 'h')
-      {
-         output_header = true;
-      }
-      else if(flag[0] == '-' && flag[1] == 'd')
-      {
-         output_disassembly = true;
-      }
-   }
-
-   char *rom_path = arguments[argument_count - 1];
+   char *rom_path = command_line;
    log("Loading ROM at \"%s\"...\n", rom_path);
 
    Platform_File rom = load_file(rom_path);
@@ -103,63 +169,81 @@ main(int argument_count, char **arguments)
    {
       return(1);
    }
+   win32_global_rom = rom;
 
    log("Validating cartridge header...\n");
    if(!validate_cartridge_header(rom.memory, rom.size))
    {
       return(1);
    }
-   log("Validated header.\n");
 
    Cartridge_Header *header = get_cartridge_header(rom.memory);
-   if(output_header)
-   {
-      dump_cartridge_header(header);
-   }
-
-   if(output_disassembly)
-   {
-      log("Parsing entry_point...\n");
-      unsigned int offset = (unsigned char *)&header->entry_point - rom.memory;
-      disassemble_stream(rom.memory, offset, sizeof(header->entry_point));
-
-      log("Parsing instruction stream...\n");
-      disassemble_stream(rom.memory, 0x150, rom.size - 0x150);
-   }
 
    // TODO(law): Implement Memory Bank Controllers.
    assert(header->ram_size == 0);
 
+   register_pc = 0x100;
    unsigned char *memory_map = malloc(0xFFFF);
    memcpy(memory_map, rom.memory, rom.size);
+   win32_global_memory_map = memory_map;
 
-   log("Fetching and executing instructions...\n");
-   register_pc = 0x100;
-   fetch_and_execute(memory_map); // NOP
-   fetch_and_execute(memory_map); // JP
+   /////////////////////////////////////////////////////////////////////////////
 
-   handle_interrupts(memory_map);
-   fetch_and_execute(memory_map);
+   WNDCLASSA window_class = {0};
+   window_class.style = CS_HREDRAW|CS_VREDRAW;
+   window_class.lpfnWndProc = win32_window_callback;
+   window_class.hInstance = instance;
+   window_class.hIcon = LoadIcon(0, IDI_APPLICATION);
+   window_class.hCursor = LoadCursorA(0, IDC_ARROW);
+   window_class.lpszClassName = "Game_Boy_Emulator_GEM";
 
-   handle_interrupts(memory_map);
-   fetch_and_execute(memory_map);
+   if(!RegisterClassA(&window_class))
+   {
+      log("ERROR: Failed to register a window class.\n");
+      return(1);
+   }
 
-   handle_interrupts(memory_map);
-   fetch_and_execute(memory_map);
+   DWORD window_style = WS_OVERLAPPEDWINDOW;
 
-   handle_interrupts(memory_map);
-   fetch_and_execute(memory_map);
+   RECT window_rect = {0};
+   window_rect.bottom = 144 << 1;
+   window_rect.right  = 160 << 1;
+   AdjustWindowRect(&window_rect, window_style, false);
 
-   handle_interrupts(memory_map);
-   fetch_and_execute(memory_map);
+   unsigned int window_width  = window_rect.right - window_rect.left;
+   unsigned int window_height = window_rect.bottom - window_rect.top;
 
-   handle_interrupts(memory_map);
-   fetch_and_execute(memory_map);
+   HWND window = CreateWindowA(window_class.lpszClassName,
+                               "Game Boy Emulator (GEM)",
+                               window_style,
+                               CW_USEDEFAULT,
+                               CW_USEDEFAULT,
+                               window_width,
+                               window_height,
+                               0,
+                               0,
+                               instance,
+                               0);
 
-   handle_interrupts(memory_map);
-   fetch_and_execute(memory_map);
+   if(!window)
+   {
+      log("ERROR: Failed to create a window.\n");
+      return(1);
+   }
 
-   log("Finished fetching and executing instructions.\n");
+   ShowWindow(window, show_command);
+   UpdateWindow(window);
+
+   win32_global_is_running = true;
+   while(win32_global_is_running)
+   {
+      MSG message;
+      while(PeekMessage(&message, 0, 0, 0, PM_REMOVE))
+      {
+         TranslateMessage(&message);
+         DispatchMessage(&message);
+      }
+   }
 
    return(0);
 }

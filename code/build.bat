@@ -1,7 +1,7 @@
 @ECHO off
 
 SET COMPILER_FLAGS=-nologo -Z7 -Od -FC -diagnostics:column
-SET LINKER_FLAGS=-incremental:no
+SET LINKER_FLAGS=-incremental:no user32.lib
 
 IF NOT EXIST ..\build mkdir ..\build
 PUSHD ..\build

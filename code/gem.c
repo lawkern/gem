@@ -144,8 +144,10 @@ validate_cartridge_header(unsigned char *rom_memory, size_t rom_size)
 }
 
 static
-void dump_cartridge_header(Cartridge_Header *header)
+void dump_cartridge_header(unsigned char *stream)
 {
+   Cartridge_Header *header = get_cartridge_header(stream);
+
    log("CARTRIDGE HEADER:\n");
 
    log("  ENTRY POINT: 0x%08x\n", header->entry_point);
