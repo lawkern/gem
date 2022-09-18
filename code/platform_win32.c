@@ -93,6 +93,7 @@ main(int argument_count, char **arguments)
    {
       return(1);
    }
+   printf("Validated header.\n");
 
    Cartridge_Header *header = get_cartridge_header(rom.memory);
    if(output_header)
@@ -110,24 +111,24 @@ main(int argument_count, char **arguments)
       disassemble_stream(rom.memory, 0x150, rom.size - 0x150);
    }
 
-   register_b = 0x13;
-   add(register_b);
-   add(register_b);
-   add(register_b);
+   // TODO(law): Implement Memory Bank Controllers.
+   assert(header->ram_size == 0);
 
-   register_c = 0x50;
-   add(register_c);
-   add(register_c);
-   add(register_c);
-   add(register_c);
-   add(register_c);
+   unsigned char *memory_map = malloc(0xFFFF);
+   memcpy(memory_map, rom.memory, rom.size);
 
-   register_d = 0x05;
-   sub(register_d);
-   sub(register_d);
-   sub(register_d);
-   sub(register_d);
-   sub(register_d);
+   printf("Fetching and executing instructions...\n");
+   register_pc = 0x100;
+   fetch_and_execute(memory_map); // NOP
+   fetch_and_execute(memory_map); // JP
+
+   fetch_and_execute(memory_map);
+   fetch_and_execute(memory_map);
+   fetch_and_execute(memory_map);
+   fetch_and_execute(memory_map);
+   fetch_and_execute(memory_map);
+
+   printf("Finished fetching and executing instructions.\n");
 
    return(0);
 }

@@ -550,7 +550,7 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
 
          switch(opcode)
          {
-            // NOTE(law): 8-bit Load instructions
+            // NOTE(law): 8-bit load instructions
             case 0x40: {printf("LD\tB, B");} break;
             case 0x41: {printf("LD\tB, C");} break;
             case 0x42: {printf("LD\tB, D");} break;
@@ -622,9 +622,10 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0x7E: {printf("LD\tA, (HL)");} break;
             case 0x7F: {printf("LD\tA, A");} break;
 
-            case 0xF2: {printf("LD\tA, (FF00 + C)");} break;
-            case 0xE2: {printf("LD\t(FF00 + C), A");} break;
+            case 0xF2: {printf("LDH\tA, (FF00 + C)");} break;
+            case 0xE2: {printf("LDH\t(FF00 + C), A");} break;
 
+            case 0x06: {printf("LD\tB, 0x%02x", stream[offset++]);} break;
             case 0x16: {printf("LD\tD, 0x%02x", stream[offset++]);} break;
             case 0x26: {printf("LD\tH, 0x%02x", stream[offset++]);} break;
             case 0x36: {printf("LD\t(HL), 0x%02x", stream[offset++]);} break;
@@ -651,7 +652,7 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             {
                unsigned short operand = *((unsigned short *)(stream + offset));
                offset += 2;
-               printf("LD\t0x%04x, A", operand);
+               printf("LD\t(0x%04x), A", operand);
             } break;
 
             case 0xF0: {printf("LDH\tA, (FF00 + 0x%02x)", stream[offset++]);} break;
@@ -662,7 +663,6 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0x2A: {printf("LDI\tA, (HL)");} break;
             case 0x3A: {printf("LDD\tA, (HL)");} break;
 
-            case 0x06: {printf("LD\tB, (0x%02x)", stream[offset++]);} break;
             case 0xF9: {printf("LD\tSP, HL");} break;
 
             case 0xC5: {printf("PUSH\tBC");} break;
@@ -676,7 +676,7 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0xF1: {printf("POP\tAF");} break;
 
 
-            // NOTE(law): 16-bit Load instructions
+            // NOTE(law): 16-bit load instructions
             case 0x08:
             {
                unsigned short operand = *((unsigned short *)(stream + offset));
@@ -712,13 +712,6 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
                printf("LD\tSP, 0x%04x", operand);
             } break;
 
-            case 0x0B: {printf("DEC\tBC");} break;
-            case 0x1B: {printf("DEC\tDE");} break;
-            case 0x2B: {printf("DEC\tHL");} break;
-            case 0x3B: {printf("DEC\tSP");} break;
-
-            case 0xF8: {printf("LD\tHL, SP + 0x%02x", stream[offset++]);} break;
-
 
             // NOTE(law): Rotate and Shift instructions
             case 0x07: {printf("RLCA");} break;
@@ -734,7 +727,7 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0x83: {printf("ADD\tA, E");} break;
             case 0x84: {printf("ADD\tA, H");} break;
             case 0x85: {printf("ADD\tA, L");} break;
-            case 0x86: {printf("ADD\tA, HL");} break;
+            case 0x86: {printf("ADD\tA, (HL)");} break;
             case 0x87: {printf("ADD\tA");} break;
 
             case 0x88: {printf("ADC\tA, B");} break;
@@ -770,7 +763,7 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0x93: {printf("SUB\tA, E");} break;
             case 0x94: {printf("SUB\tA, H");} break;
             case 0x95: {printf("SUB\tA, L");} break;
-            case 0x96: {printf("SUB\tA, HL");} break;
+            case 0x96: {printf("SUB\tA, (HL)");} break;
             case 0x97: {printf("SUB\tA");} break;
 
             case 0xD6:
@@ -855,7 +848,6 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0x35: {printf("DEC\t(HL)");} break;
             case 0x3D: {printf("DEC\tA");} break;
 
-
             // NOTE(law): 16-bit Arithmetic/Logic instructions
             case 0x09: {printf("ADD\tHL, BC");} break;
             case 0x19: {printf("ADD\tHL, DE");} break;
@@ -866,6 +858,13 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0x13: {printf("INC\tDE");} break;
             case 0x23: {printf("INC\tHL");} break;
             case 0x33: {printf("INC\tSP");} break;
+
+            case 0x0B: {printf("DEC\tBC");} break;
+            case 0x1B: {printf("DEC\tDE");} break;
+            case 0x2B: {printf("DEC\tHL");} break;
+            case 0x3B: {printf("DEC\tSP");} break;
+
+            case 0xF8: {printf("LD\tHL, SP + 0x%02x", stream[offset++]);} break;
 
 
             // NOTE(law): CPU Control instructions
@@ -966,7 +965,7 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             } break;
 
             case 0xC7: {printf("RST\t00H");} break;
-            case 0xCF: {printf("RST\t10H");} break;
+            case 0xCF: {printf("RST\t08H");} break;
             case 0xD7: {printf("RST\t10H");} break;
             case 0xDF: {printf("RST\t18H");} break;
             case 0xE7: {printf("RST\t20H");} break;
@@ -1005,6 +1004,10 @@ static unsigned char register_l;
 
 static unsigned short register_pc;
 static unsigned short register_sp;
+
+static bool halt;
+static bool stop;
+static bool ime;
 
 #define FLAG_Z_BIT 7
 #define FLAG_N_BIT 6
@@ -1067,12 +1070,40 @@ add(unsigned char value)
 }
 
 static void
+adc(unsigned char value)
+{
+   unsigned short extended_sum = (unsigned short)register_a + (unsigned short)value + FLAG_C;
+   unsigned char half_sum = (register_a & 0xF) + ((value + FLAG_C) & 0xF);
+
+   register_a = (unsigned char)extended_sum;
+
+   register_f = 0;
+
+   if(register_a == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+
+   register_f &= ~FLAG_N_MASK;
+
+   if((half_sum & 0x10) == 0x10)
+   {
+      register_f |= FLAG_H_MASK;
+   }
+
+   if(extended_sum > 0xFF)
+   {
+      register_f |= FLAG_C_MASK;
+   }
+}
+
+static void
 sub(unsigned char value)
 {
    // NOTE(law): Compute these values before updating register A for use in the
    // flag calculations.
    bool is_negative = (signed char)register_a < (signed char)value;
-   bool is_half_negative = (signed char)(register_a & 0xF) < (signed)(value & 0xF);
+   bool is_half_negative = (signed char)(register_a & 0xF) < (signed char)(value & 0xF);
 
    register_a -= value;
 
@@ -1102,5 +1133,1091 @@ sub(unsigned char value)
    if(is_negative)
    {
       register_f |= FLAG_C_MASK;
+   }
+}
+
+static void
+sbc(unsigned char value)
+{
+   signed char value_and_carry = (signed char)value + FLAG_C;
+
+   bool is_negative = (signed char)register_a < value_and_carry;
+   bool is_half_negative = (signed char)(register_a & 0xF) < (value_and_carry & 0xF);
+
+   register_a -= (value);
+
+   register_f = 0;
+
+   if(register_a == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+
+   register_f |= FLAG_N_MASK;
+
+   if(is_half_negative)
+   {
+      register_f |= FLAG_H_MASK;
+   }
+
+   if(is_negative)
+   {
+      register_f |= FLAG_C_MASK;
+   }
+}
+
+static void
+xor(unsigned char value)
+{
+   register_a ^= value;
+
+   register_f = 0;
+
+   if(register_a == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+}
+
+static void
+or(unsigned char value)
+{
+   register_a |= value;
+
+   register_f = 0;
+
+   if(register_a == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+}
+
+static void
+and(unsigned char value)
+{
+   register_a &= value;
+
+   register_f = 0;
+
+   if(register_a == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+
+   register_f |= FLAG_H_MASK;
+}
+
+static void
+cp(unsigned char value)
+{
+   bool is_negative = (signed char)register_a < (signed char)value;
+   bool is_half_negative = (signed char)(register_a & 0xF) < (signed char)(value & 0xF);
+
+   register_f = 0;
+
+   if(register_a == value)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+
+   register_f |= FLAG_N_MASK;
+
+   if(is_half_negative)
+   {
+      register_f |= FLAG_H_MASK;
+   }
+
+   if(is_negative)
+   {
+      register_f |= FLAG_C_MASK;
+   }
+}
+
+static void
+inc(unsigned char *value)
+{
+   unsigned char half_sum = (*value & 0xF) + 1;
+
+   *value += 1;
+
+   if(register_a == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+
+   register_f &= ~FLAG_N_MASK;
+
+   if((half_sum & 0x10) == 0x10)
+   {
+      register_f |= FLAG_H_MASK;
+   }
+}
+
+static void
+dec(unsigned char *value)
+{
+   bool is_half_negative = (signed char)(*value & 0xF) < 1;
+
+   *value -= 1;
+
+   if(register_a == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+
+   register_f |= FLAG_N_MASK;
+
+   if(is_half_negative)
+   {
+      register_f |= FLAG_H_MASK;
+   }
+}
+
+static void
+add16(unsigned short value)
+{
+   unsigned int extended_sum = (unsigned int)REGISTER_HL + (unsigned int)value;
+   unsigned char half_sum = (REGISTER_HL & 0xF) + (value & 0xF);
+
+   unsigned short sum = REGISTER_HL + value;
+   register_h = (sum >> 8);
+   register_l = (sum & 0xFF);
+
+   register_f &= ~FLAG_N_MASK;
+
+   if((half_sum & 0x10) == 0x10)
+   {
+      register_f |= FLAG_H_MASK;
+   }
+
+   if(extended_sum > 0xFFFF)
+   {
+      register_f |= FLAG_C_MASK;
+   }
+}
+
+static void
+inc16_bytes(unsigned char *high, unsigned char *low)
+{
+   unsigned short value = ((unsigned short)high << 8) | ((unsigned short)low & 0xFF);
+   value += 1;
+
+   *high = (value >> 8);
+   *low  = (value & 0xFF);
+}
+
+static void
+dec16_bytes(unsigned char *high, unsigned char *low)
+{
+   unsigned short value = ((unsigned short)high << 8) | ((unsigned short)low & 0xFF);
+   value -= 1;
+
+   *high = (value >> 8);
+   *low  = (value & 0xFF);
+}
+
+static void
+inc16(unsigned short *value)
+{
+   *value += 1;
+}
+
+static void
+dec16(unsigned short *value)
+{
+   *value -= 1;
+}
+
+static void
+jp(unsigned char *stream, bool should_jump)
+{
+   unsigned char address_low  = stream[register_pc++];
+   unsigned char address_high = stream[register_pc++];
+
+   if(should_jump)
+   {
+      unsigned short address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
+      register_pc = address;
+   }
+}
+
+static void
+jr(unsigned char *stream, bool should_jump)
+{
+   unsigned char offset = stream[register_pc++];
+
+   if(should_jump)
+   {
+      signed short address = (signed short)register_pc + (signed short)offset;
+      register_pc = (unsigned short)address;
+   }
+}
+
+static void
+call(unsigned char *stream, bool should_jump)
+{
+   unsigned char address_low  = stream[register_pc++];
+   unsigned char address_high = stream[register_pc++];
+
+   if(should_jump)
+   {
+      stream[--register_sp] = address_high;
+      stream[--register_sp] = address_low;
+
+      unsigned short address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
+      register_pc = address;
+   }
+}
+
+static void
+ret(unsigned char *stream, bool should_jump)
+{
+   unsigned char address_low  = stream[register_sp++];
+   unsigned char address_high = stream[register_sp++];
+
+   if(should_jump)
+   {
+      unsigned short address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
+      register_pc = address;
+   }
+}
+
+static void
+rst(unsigned char *stream, unsigned char address_low)
+{
+   stream[--register_sp] = (register_pc >> 8);
+   stream[--register_sp] = (register_pc & 0xFF);
+
+   unsigned short address = (unsigned short)address_low;
+   register_pc = address;
+}
+
+static void
+fetch_and_execute(unsigned char *stream)
+{
+   unsigned char opcode = stream[register_pc++];
+
+   if(opcode == 0xCB)
+   {
+      // NOTE(law): Parse prefix instructions.
+      opcode = stream[register_pc++];
+      switch(opcode)
+      {
+         // NOTE(law): Rotate and Shift instructions
+         case 0x00: {assert(!"RLC\tB");} break;
+         case 0x01: {assert(!"RLC\tC");} break;
+         case 0x02: {assert(!"RLC\tD");} break;
+         case 0x03: {assert(!"RLC\tE");} break;
+         case 0x04: {assert(!"RLC\tH");} break;
+         case 0x05: {assert(!"RLC\tL");} break;
+         case 0x06: {assert(!"RLC\t(HL)");} break;
+         case 0x07: {assert(!"RLC\tA");} break;
+
+         case 0x08: {assert(!"RRC\tB");} break;
+         case 0x09: {assert(!"RRC\tC");} break;
+         case 0x0A: {assert(!"RRC\tD");} break;
+         case 0x0B: {assert(!"RRC\tE");} break;
+         case 0x0C: {assert(!"RRC\tH");} break;
+         case 0x0D: {assert(!"RRC\tL");} break;
+         case 0x0E: {assert(!"RRC\t(HL)");} break;
+         case 0x0F: {assert(!"RRC\tA");} break;
+
+         case 0x10: {assert(!"RL\tB");} break;
+         case 0x11: {assert(!"RL\tC");} break;
+         case 0x12: {assert(!"RL\tD");} break;
+         case 0x13: {assert(!"RL\tE");} break;
+         case 0x14: {assert(!"RL\tH");} break;
+         case 0x15: {assert(!"RL\tL");} break;
+         case 0x16: {assert(!"RL\t(HL)");} break;
+         case 0x17: {assert(!"RL\tA");} break;
+
+         case 0x18: {assert(!"RR\tB");} break;
+         case 0x19: {assert(!"RR\tC");} break;
+         case 0x1A: {assert(!"RR\tD");} break;
+         case 0x1B: {assert(!"RR\tE");} break;
+         case 0x1C: {assert(!"RR\tH");} break;
+         case 0x1D: {assert(!"RR\tL");} break;
+         case 0x1E: {assert(!"RR\t(HL)");} break;
+         case 0x1F: {assert(!"RR\tA");} break;
+
+         case 0x20: {assert(!"SLA\tB");} break;
+         case 0x21: {assert(!"SLA\tC");} break;
+         case 0x22: {assert(!"SLA\tD");} break;
+         case 0x23: {assert(!"SLA\tE");} break;
+         case 0x24: {assert(!"SLA\tH");} break;
+         case 0x25: {assert(!"SLA\tL");} break;
+         case 0x26: {assert(!"SLA\t(HL)");} break;
+         case 0x27: {assert(!"SLA\tA");} break;
+
+         case 0x28: {assert(!"SRA\tB");} break;
+         case 0x29: {assert(!"SRA\tC");} break;
+         case 0x2A: {assert(!"SRA\tD");} break;
+         case 0x2B: {assert(!"SRA\tE");} break;
+         case 0x2C: {assert(!"SRA\tH");} break;
+         case 0x2D: {assert(!"SRA\tL");} break;
+         case 0x2E: {assert(!"SRA\t(HL)");} break;
+         case 0x2F: {assert(!"SRA\tA");} break;
+
+         case 0x30: {assert(!"SWAP\tB");} break;
+         case 0x31: {assert(!"SWAP\tC");} break;
+         case 0x32: {assert(!"SWAP\tD");} break;
+         case 0x33: {assert(!"SWAP\tE");} break;
+         case 0x34: {assert(!"SWAP\tH");} break;
+         case 0x35: {assert(!"SWAP\tL");} break;
+         case 0x36: {assert(!"SWAP\t(HL)");} break;
+         case 0x37: {assert(!"SWAP\tA");} break;
+
+         case 0x38: {assert(!"SRL\tB");} break;
+         case 0x39: {assert(!"SRL\tC");} break;
+         case 0x3A: {assert(!"SRL\tD");} break;
+         case 0x3B: {assert(!"SRL\tE");} break;
+         case 0x3C: {assert(!"SRL\tH");} break;
+         case 0x3D: {assert(!"SRL\tL");} break;
+         case 0x3E: {assert(!"SRL\t(HL)");} break;
+         case 0x3F: {assert(!"SRL\tA");} break;
+
+
+         // NOTE(law): Single-bit Operation instructions
+         case 0x40: {assert(!"BIT\t0, B");} break;
+         case 0x41: {assert(!"BIT\t0, C");} break;
+         case 0x42: {assert(!"BIT\t0, D");} break;
+         case 0x43: {assert(!"BIT\t0, E");} break;
+         case 0x44: {assert(!"BIT\t0, H");} break;
+         case 0x45: {assert(!"BIT\t0, L");} break;
+         case 0x46: {assert(!"BIT\t0, (HL)");} break;
+         case 0x47: {assert(!"BIT\t0, A");} break;
+
+         case 0x48: {assert(!"BIT\t1, B");} break;
+         case 0x49: {assert(!"BIT\t1, C");} break;
+         case 0x4A: {assert(!"BIT\t1, D");} break;
+         case 0x4B: {assert(!"BIT\t1, E");} break;
+         case 0x4C: {assert(!"BIT\t1, H");} break;
+         case 0x4D: {assert(!"BIT\t1, L");} break;
+         case 0x4E: {assert(!"BIT\t1, (HL)");} break;
+         case 0x4F: {assert(!"BIT\t1, A");} break;
+
+         case 0x50: {assert(!"BIT\t2, B");} break;
+         case 0x51: {assert(!"BIT\t2, C");} break;
+         case 0x52: {assert(!"BIT\t2, D");} break;
+         case 0x53: {assert(!"BIT\t2, E");} break;
+         case 0x54: {assert(!"BIT\t2, H");} break;
+         case 0x55: {assert(!"BIT\t2, L");} break;
+         case 0x56: {assert(!"BIT\t2, (HL)");} break;
+         case 0x57: {assert(!"BIT\t2, A");} break;
+
+         case 0x58: {assert(!"BIT\t3, B");} break;
+         case 0x59: {assert(!"BIT\t3, C");} break;
+         case 0x5A: {assert(!"BIT\t3, D");} break;
+         case 0x5B: {assert(!"BIT\t3, E");} break;
+         case 0x5C: {assert(!"BIT\t3, H");} break;
+         case 0x5D: {assert(!"BIT\t3, L");} break;
+         case 0x5E: {assert(!"BIT\t3, (HL)");} break;
+         case 0x5F: {assert(!"BIT\t3, A");} break;
+
+         case 0x60: {assert(!"BIT\t4, B");} break;
+         case 0x61: {assert(!"BIT\t4, C");} break;
+         case 0x62: {assert(!"BIT\t4, D");} break;
+         case 0x63: {assert(!"BIT\t4, E");} break;
+         case 0x64: {assert(!"BIT\t4, H");} break;
+         case 0x65: {assert(!"BIT\t4, L");} break;
+         case 0x66: {assert(!"BIT\t4, (HL)");} break;
+         case 0x67: {assert(!"BIT\t4, A");} break;
+
+         case 0x68: {assert(!"BIT\t5, B");} break;
+         case 0x69: {assert(!"BIT\t5, C");} break;
+         case 0x6A: {assert(!"BIT\t5, D");} break;
+         case 0x6B: {assert(!"BIT\t5, E");} break;
+         case 0x6C: {assert(!"BIT\t5, H");} break;
+         case 0x6D: {assert(!"BIT\t5, L");} break;
+         case 0x6E: {assert(!"BIT\t5, (HL)");} break;
+         case 0x6F: {assert(!"BIT\t5, A");} break;
+
+         case 0x70: {assert(!"BIT\t6, B");} break;
+         case 0x71: {assert(!"BIT\t6, C");} break;
+         case 0x72: {assert(!"BIT\t6, D");} break;
+         case 0x73: {assert(!"BIT\t6, E");} break;
+         case 0x74: {assert(!"BIT\t6, H");} break;
+         case 0x75: {assert(!"BIT\t6, L");} break;
+         case 0x76: {assert(!"BIT\t6, (HL)");} break;
+         case 0x77: {assert(!"BIT\t6, A");} break;
+
+         case 0x78: {assert(!"BIT\t7, B");} break;
+         case 0x79: {assert(!"BIT\t7, C");} break;
+         case 0x7A: {assert(!"BIT\t7, D");} break;
+         case 0x7B: {assert(!"BIT\t7, E");} break;
+         case 0x7C: {assert(!"BIT\t7, H");} break;
+         case 0x7D: {assert(!"BIT\t7, L");} break;
+         case 0x7E: {assert(!"BIT\t7, (HL)");} break;
+         case 0x7F: {assert(!"BIT\t7, A");} break;
+
+         case 0x80: {assert(!"RES\t0, B");} break;
+         case 0x81: {assert(!"RES\t0, C");} break;
+         case 0x82: {assert(!"RES\t0, D");} break;
+         case 0x83: {assert(!"RES\t0, E");} break;
+         case 0x84: {assert(!"RES\t0, H");} break;
+         case 0x85: {assert(!"RES\t0, L");} break;
+         case 0x86: {assert(!"RES\t0, (HL)");} break;
+         case 0x87: {assert(!"RES\t0, A");} break;
+
+         case 0x88: {assert(!"RES\t1, B");} break;
+         case 0x89: {assert(!"RES\t1, C");} break;
+         case 0x8A: {assert(!"RES\t1, D");} break;
+         case 0x8B: {assert(!"RES\t1, E");} break;
+         case 0x8C: {assert(!"RES\t1, H");} break;
+         case 0x8D: {assert(!"RES\t1, L");} break;
+         case 0x8E: {assert(!"RES\t1, (HL)");} break;
+         case 0x8F: {assert(!"RES\t1, A");} break;
+
+         case 0x90: {assert(!"RES\t2, B");} break;
+         case 0x91: {assert(!"RES\t2, C");} break;
+         case 0x92: {assert(!"RES\t2, D");} break;
+         case 0x93: {assert(!"RES\t2, E");} break;
+         case 0x94: {assert(!"RES\t2, H");} break;
+         case 0x95: {assert(!"RES\t2, L");} break;
+         case 0x96: {assert(!"RES\t2, (HL)");} break;
+         case 0x97: {assert(!"RES\t2, A");} break;
+
+         case 0x98: {assert(!"RES\t3, B");} break;
+         case 0x99: {assert(!"RES\t3, C");} break;
+         case 0x9A: {assert(!"RES\t3, D");} break;
+         case 0x9B: {assert(!"RES\t3, E");} break;
+         case 0x9C: {assert(!"RES\t3, H");} break;
+         case 0x9D: {assert(!"RES\t3, L");} break;
+         case 0x9E: {assert(!"RES\t3, (HL)");} break;
+         case 0x9F: {assert(!"RES\t3, A");} break;
+
+         case 0xA0: {assert(!"RES\t4, B");} break;
+         case 0xA1: {assert(!"RES\t4, C");} break;
+         case 0xA2: {assert(!"RES\t4, D");} break;
+         case 0xA3: {assert(!"RES\t4, E");} break;
+         case 0xA4: {assert(!"RES\t4, H");} break;
+         case 0xA5: {assert(!"RES\t4, L");} break;
+         case 0xA6: {assert(!"RES\t4, (HL)");} break;
+         case 0xA7: {assert(!"RES\t4, A");} break;
+
+         case 0xA8: {assert(!"RES\t5, B");} break;
+         case 0xA9: {assert(!"RES\t5, C");} break;
+         case 0xAA: {assert(!"RES\t5, D");} break;
+         case 0xAB: {assert(!"RES\t5, E");} break;
+         case 0xAC: {assert(!"RES\t5, H");} break;
+         case 0xAD: {assert(!"RES\t5, L");} break;
+         case 0xAE: {assert(!"RES\t5, (HL)");} break;
+         case 0xAF: {assert(!"RES\t5, A");} break;
+
+         case 0xB0: {assert(!"RES\t6, B");} break;
+         case 0xB1: {assert(!"RES\t6, C");} break;
+         case 0xB2: {assert(!"RES\t6, D");} break;
+         case 0xB3: {assert(!"RES\t6, E");} break;
+         case 0xB4: {assert(!"RES\t6, H");} break;
+         case 0xB5: {assert(!"RES\t6, L");} break;
+         case 0xB6: {assert(!"RES\t6, (HL)");} break;
+         case 0xB7: {assert(!"RES\t6, A");} break;
+
+         case 0xB8: {assert(!"RES\t7, B");} break;
+         case 0xB9: {assert(!"RES\t7, C");} break;
+         case 0xBA: {assert(!"RES\t7, D");} break;
+         case 0xBB: {assert(!"RES\t7, E");} break;
+         case 0xBC: {assert(!"RES\t7, H");} break;
+         case 0xBD: {assert(!"RES\t7, L");} break;
+         case 0xBE: {assert(!"RES\t7, (HL)");} break;
+         case 0xBF: {assert(!"RES\t7, A");} break;
+
+         case 0xC0: {assert(!"SET\t0, B");} break;
+         case 0xC1: {assert(!"SET\t0, C");} break;
+         case 0xC2: {assert(!"SET\t0, D");} break;
+         case 0xC3: {assert(!"SET\t0, E");} break;
+         case 0xC4: {assert(!"SET\t0, H");} break;
+         case 0xC5: {assert(!"SET\t0, L");} break;
+         case 0xC6: {assert(!"SET\t0, (HL)");} break;
+         case 0xC7: {assert(!"SET\t0, A");} break;
+
+         case 0xC8: {assert(!"SET\t1, B");} break;
+         case 0xC9: {assert(!"SET\t1, C");} break;
+         case 0xCA: {assert(!"SET\t1, D");} break;
+         case 0xCB: {assert(!"SET\t1, E");} break;
+         case 0xCC: {assert(!"SET\t1, H");} break;
+         case 0xCD: {assert(!"SET\t1, L");} break;
+         case 0xCE: {assert(!"SET\t1, (HL)");} break;
+         case 0xCF: {assert(!"SET\t1, A");} break;
+
+         case 0xD0: {assert(!"SET\t2, B");} break;
+         case 0xD1: {assert(!"SET\t2, C");} break;
+         case 0xD2: {assert(!"SET\t2, D");} break;
+         case 0xD3: {assert(!"SET\t2, E");} break;
+         case 0xD4: {assert(!"SET\t2, H");} break;
+         case 0xD5: {assert(!"SET\t2, L");} break;
+         case 0xD6: {assert(!"SET\t2, (HL)");} break;
+         case 0xD7: {assert(!"SET\t2, A");} break;
+
+         case 0xD8: {assert(!"SET\t3, B");} break;
+         case 0xD9: {assert(!"SET\t3, C");} break;
+         case 0xDA: {assert(!"SET\t3, D");} break;
+         case 0xDB: {assert(!"SET\t3, E");} break;
+         case 0xDC: {assert(!"SET\t3, H");} break;
+         case 0xDD: {assert(!"SET\t3, L");} break;
+         case 0xDE: {assert(!"SET\t3, (HL)");} break;
+         case 0xDF: {assert(!"SET\t3, A");} break;
+
+         case 0xE0: {assert(!"SET\t4, B");} break;
+         case 0xE1: {assert(!"SET\t4, C");} break;
+         case 0xE2: {assert(!"SET\t4, D");} break;
+         case 0xE3: {assert(!"SET\t4, E");} break;
+         case 0xE4: {assert(!"SET\t4, H");} break;
+         case 0xE5: {assert(!"SET\t4, L");} break;
+         case 0xE6: {assert(!"SET\t4, (HL)");} break;
+         case 0xE7: {assert(!"SET\t4, A");} break;
+
+         case 0xE8: {assert(!"SET\t5, B");} break;
+         case 0xE9: {assert(!"SET\t5, C");} break;
+         case 0xEA: {assert(!"SET\t5, D");} break;
+         case 0xEB: {assert(!"SET\t5, E");} break;
+         case 0xEC: {assert(!"SET\t5, H");} break;
+         case 0xED: {assert(!"SET\t5, L");} break;
+         case 0xEE: {assert(!"SET\t5, (HL)");} break;
+         case 0xEF: {assert(!"SET\t5, A");} break;
+
+         case 0xF0: {assert(!"SET\t6, B");} break;
+         case 0xF1: {assert(!"SET\t6, C");} break;
+         case 0xF2: {assert(!"SET\t6, D");} break;
+         case 0xF3: {assert(!"SET\t6, E");} break;
+         case 0xF4: {assert(!"SET\t6, H");} break;
+         case 0xF5: {assert(!"SET\t6, L");} break;
+         case 0xF6: {assert(!"SET\t6, (HL)");} break;
+         case 0xF7: {assert(!"SET\t6, A");} break;
+
+         case 0xF8: {assert(!"SET\t7, B");} break;
+         case 0xF9: {assert(!"SET\t7, C");} break;
+         case 0xFA: {assert(!"SET\t7, D");} break;
+         case 0xFB: {assert(!"SET\t7, E");} break;
+         case 0xFC: {assert(!"SET\t7, H");} break;
+         case 0xFD: {assert(!"SET\t7, L");} break;
+         case 0xFE: {assert(!"SET\t7, (HL)");} break;
+         case 0xFF: {assert(!"SET\t7, A");} break;
+
+         default:
+         {
+            printf("UNHANDLED OPCODE CB %x\n", opcode);
+            assert(0);
+         } break;
+      }
+   }
+   else
+   {
+      switch(opcode)
+      {
+         case 0x00: {} break; // NOP
+
+         // NOTE(law): 8-bit load instructions
+         case 0x40: {register_b = register_b;} break;
+         case 0x41: {register_b = register_c;} break;
+         case 0x42: {register_b = register_d;} break;
+         case 0x43: {register_b = register_e;} break;
+         case 0x44: {register_b = register_h;} break;
+         case 0x45: {register_b = register_l;} break;
+         case 0x46: {register_b = stream[REGISTER_HL];} break;
+         case 0x47: {register_b =  register_a;} break;
+
+         case 0x48: {register_c = register_b;} break;
+         case 0x49: {register_c = register_c;} break;
+         case 0x4A: {register_c = register_d;} break;
+         case 0x4B: {register_c = register_e;} break;
+         case 0x4C: {register_c = register_h;} break;
+         case 0x4D: {register_c = register_l;} break;
+         case 0x4E: {register_c = stream[REGISTER_HL];} break;
+         case 0x4F: {register_c =  register_a;} break;
+
+         case 0x50: {register_d = register_b;} break;
+         case 0x51: {register_d = register_c;} break;
+         case 0x52: {register_d = register_d;} break;
+         case 0x53: {register_d = register_e;} break;
+         case 0x54: {register_d = register_h;} break;
+         case 0x55: {register_d = register_l;} break;
+         case 0x56: {register_d = stream[REGISTER_HL];} break;
+         case 0x57: {register_d =  register_a;} break;
+
+         case 0x58: {register_e = register_b;} break;
+         case 0x59: {register_e = register_c;} break;
+         case 0x5A: {register_e = register_d;} break;
+         case 0x5B: {register_e = register_e;} break;
+         case 0x5C: {register_e = register_h;} break;
+         case 0x5D: {register_e = register_l;} break;
+         case 0x5E: {register_e = stream[REGISTER_HL];} break;
+         case 0x5F: {register_e =  register_a;} break;
+
+         case 0x60: {register_h = register_b;} break;
+         case 0x61: {register_h = register_c;} break;
+         case 0x62: {register_h = register_d;} break;
+         case 0x63: {register_h = register_e;} break;
+         case 0x64: {register_h = register_h;} break;
+         case 0x65: {register_h = register_l;} break;
+         case 0x66: {register_h = stream[REGISTER_HL];} break;
+         case 0x67: {register_h =  register_a;} break;
+
+         case 0x68: {register_l = register_b;} break;
+         case 0x69: {register_l = register_c;} break;
+         case 0x6A: {register_l = register_d;} break;
+         case 0x6B: {register_l = register_e;} break;
+         case 0x6C: {register_l = register_h;} break;
+         case 0x6D: {register_l = register_l;} break;
+         case 0x6E: {register_l = stream[REGISTER_HL];} break;
+         case 0x6F: {register_l =  register_a;} break;
+
+         case 0x70: {stream[REGISTER_HL] = register_b;} break;
+         case 0x71: {stream[REGISTER_HL] = register_c;} break;
+         case 0x72: {stream[REGISTER_HL] = register_d;} break;
+         case 0x73: {stream[REGISTER_HL] = register_e;} break;
+         case 0x74: {stream[REGISTER_HL] = register_h;} break;
+         case 0x75: {stream[REGISTER_HL] = register_l;} break;
+         case 0x77: {stream[REGISTER_HL] = register_a;} break;
+
+         case 0x78: {register_a = register_b;} break;
+         case 0x79: {register_a = register_c;} break;
+         case 0x7A: {register_a = register_d;} break;
+         case 0x7B: {register_a = register_e;} break;
+         case 0x7C: {register_a = register_h;} break;
+         case 0x7D: {register_a = register_l;} break;
+         case 0x7E: {register_a = stream[REGISTER_HL];} break;
+         case 0x7F: {register_a =  register_a;} break;
+
+         case 0x06: {register_b = stream[register_pc++];} break; // LD B, n
+         case 0x0E: {register_c = stream[register_pc++];} break; // LD C, n
+         case 0x1E: {register_e = stream[register_pc++];} break; // LD E, n
+         case 0x16: {register_d = stream[register_pc++];} break; // LD D, n
+         case 0x26: {register_h = stream[register_pc++];} break; // LD H, n
+         case 0x2E: {register_l = stream[register_pc++];} break; // LD L, n
+         case 0x36: {stream[REGISTER_HL] = stream[register_pc++];} break; // LD (HL), (nn)
+         case 0x3E: {register_a = stream[register_pc++];} break; // LD A, n
+
+         case 0x0A: {register_a = stream[REGISTER_BC];} break; // LD A, (BC)
+         case 0x1A: {register_a = stream[REGISTER_DE];} break; // LD A, (DE)
+
+         case 0xFA: // LD A, (nn)
+         {
+            unsigned char address_low  = stream[register_pc++];
+            unsigned char address_high = stream[register_pc++];
+            unsigned address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
+
+            register_a = stream[address];
+         } break;
+
+         case 0x02: {stream[REGISTER_BC] = register_a;} break; // LD (BC), A
+         case 0x12: {stream[REGISTER_DE] = register_a;} break; // LD (DE), A
+
+         case 0xEA: // LD (nn), A
+         {
+            unsigned char address_low  = stream[register_pc++];
+            unsigned char address_high = stream[register_pc++];
+            unsigned address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
+
+            stream[address] = register_a;
+         } break;
+
+         case 0xF2: {register_a = stream[0xFF00 + register_c];} break; // LDH A, (0xFF00 + C)
+         case 0xE2: {stream[0xFF00 + register_c] = register_a;} break; // LDH (0xFF00 + C), A
+
+         case 0xF0: {register_a = stream[0xFF00 + stream[register_pc++]];} break; // LDH A, (0xFF + n)
+         case 0xE0: {stream[0xFF00 + stream[register_pc++]] = register_a;} break; // LDH (0xFF + n), A
+
+         case 0x22: // LDI (HL), A
+         {
+            stream[REGISTER_HL] = register_a;
+            unsigned short updated_value = REGISTER_HL + 1;
+
+            register_h = updated_value >> 8;
+            register_l = updated_value & 0xFF;
+         } break;
+
+         case 0x32: // LDD (HL), A
+         {
+            stream[REGISTER_HL] = register_a;
+            unsigned short updated_value = REGISTER_HL - 1;
+
+            register_h = updated_value >> 8;
+            register_l = updated_value & 0xFF;
+         } break;
+
+         case 0x2A: // LDI A, (HL)
+         {
+            register_a = stream[REGISTER_HL];
+            unsigned short updated_value = REGISTER_HL + 1;
+
+            register_h = updated_value >> 8;
+            register_l = updated_value & 0xFF;
+         } break;
+
+         case 0x3A: // LDD A, (HL)
+         {
+            register_a = stream[REGISTER_HL];
+            unsigned short updated_value = REGISTER_HL - 1;
+
+            register_h = updated_value >> 8;
+            register_l = updated_value & 0xFF;
+         } break;
+
+         case 0xF9: {register_sp = REGISTER_HL;} break; // LD SP, HL
+
+         case 0xC5: // PUSH BC
+         {
+            stream[--register_sp] = register_b;
+            stream[--register_sp] = register_c;
+         } break;
+
+         case 0xD5: // PUSH DE
+         {
+            stream[--register_sp] = register_d;
+            stream[--register_sp] = register_e;
+         } break;
+
+         case 0xE5: // PUSH HL
+         {
+            stream[--register_sp] = register_h;
+            stream[--register_sp] = register_l;
+         } break;
+
+         case 0xF5: // PUSH AP
+         {
+            stream[--register_sp] = register_a;
+            stream[--register_sp] = register_f;
+         } break;
+
+         case 0xC1: // POP BC
+         {
+            register_c = stream[register_sp++];
+            register_b = stream[register_sp++];
+         } break;
+
+         case 0xD1: // POP DE
+         {
+            register_e = stream[register_sp++];
+            register_d = stream[register_sp++];
+         } break;
+
+         case 0xE1: //POP HL
+         {
+            register_l = stream[register_sp++];
+            register_h = stream[register_sp++];
+         } break;
+
+         case 0xF1: // POP AF
+         {
+            register_f = stream[register_sp++];
+            register_a = stream[register_sp++];
+         } break;
+
+
+         // NOTE(law): 16-bit load instructions
+         case 0x01: // LD BC, nn
+         {
+            register_c = stream[register_pc++];
+            register_b = stream[register_pc++];
+         } break;
+
+         case 0x11: // LD DE, nn
+         {
+            register_e = stream[register_pc++];
+            register_d = stream[register_pc++];
+         } break;
+
+         case 0x21: // LD HL, nn
+         {
+            register_l = stream[register_pc++];
+            register_h = stream[register_pc++];
+         } break;
+
+         case 0x31: // LD SP, nn
+         {
+            unsigned char value_low  = stream[register_pc++];
+            unsigned char value_high = stream[register_pc++];
+            unsigned short value = ((unsigned short)value_high << 8) | ((unsigned short)value_low);
+
+            register_sp = value;
+         } break;
+
+
+         // NOTE(law): 8-bit Arithmetic/Logic instructions
+         case 0x80: add(register_b); break; // ADD A, B
+         case 0x81: add(register_c); break; // ADD A, C
+         case 0x82: add(register_d); break; // ADD A, D
+         case 0x83: add(register_e); break; // ADD A, E
+         case 0x84: add(register_h); break; // ADD A, H
+         case 0x85: add(register_l); break; // ADD A, L
+         case 0x86: add(stream[REGISTER_HL]); break; // ADD A, (HL)
+         case 0x87: add(register_a); break; // ADD A, A
+
+         case 0xC6: add(stream[register_pc++]); break; // ADD A, n
+
+         case 0x88: adc(register_b); break; // ADC A, B
+         case 0x89: adc(register_c); break; // ADC A, C
+         case 0x8A: adc(register_d); break; // ADC A, D
+         case 0x8B: adc(register_e); break; // ADC A, E
+         case 0x8C: adc(register_h); break; // ADC A, H
+         case 0x8D: adc(register_l); break; // ADC A, L
+         case 0x8E: adc(stream[REGISTER_HL]); break; // ADC A, (HL)
+         case 0x8F: adc(register_a); break; // ADC A, A
+
+         case 0xCE: {adc(stream[register_pc++]);} break; // ADC A, n
+
+         case 0x90: sub(register_b); break; // SUB A, B
+         case 0x91: sub(register_c); break; // SUB A, C
+         case 0x92: sub(register_d); break; // SUB A, D
+         case 0x93: sub(register_e); break; // SUB A, E
+         case 0x94: sub(register_h); break; // SUB A, H
+         case 0x95: sub(register_l); break; // SUB A, L
+         case 0x96: sub(stream[REGISTER_HL]); break; // SUB A, (HL)
+         case 0x97: sub(register_a); break; // SUB A, A
+
+         case 0xD6: sub(stream[register_pc++]); break; // SUB A, n
+
+         case 0x98: sbc(register_b); break; // SBC A, B
+         case 0x99: sbc(register_c); break; // SBC A, C
+         case 0x9A: sbc(register_d); break; // SBC A, D
+         case 0x9B: sbc(register_e); break; // SBC A, E
+         case 0x9C: sbc(register_h); break; // SBC A, H
+         case 0x9D: sbc(register_l); break; // SBC A, L
+         case 0x9E: sbc(stream[REGISTER_HL]); break; // SBC A, (HL)
+         case 0x9F: sbc(register_a); break; // SBC A, A
+
+         case 0xDE: sbc(stream[register_pc++]); break; // SBC A, n
+
+         case 0x27: // DAA
+         {
+            // TODO(law): Look up how decimal adjustment actually works and
+            // implement it!
+
+            if(FLAG_Z)
+            {
+               register_f &= ~FLAG_Z_MASK;
+            }
+            else
+            {
+               register_f |= FLAG_Z_MASK;
+            }
+
+            register_f &= ~FLAG_H_MASK;
+
+            if(FLAG_C)
+            {
+               register_f &= ~FLAG_C_MASK;
+            }
+            else
+            {
+               register_f |= FLAG_C_MASK;
+            }
+         } break;
+
+         case 0x2F: // CPL
+         {
+            register_a = ~register_a;
+            register_f |= FLAG_N_MASK;
+            register_f |= FLAG_H_MASK;
+         } break;
+
+         case 0xA8: xor(register_b); break; // XOR A, B
+         case 0xA9: xor(register_c); break; // XOR A, C
+         case 0xAA: xor(register_d); break; // XOR A, D
+         case 0xAB: xor(register_e); break; // XOR A, E
+         case 0xAC: xor(register_h); break; // XOR A, H
+         case 0xAD: xor(register_l); break; // XOR A, L
+         case 0xAE: xor(stream[REGISTER_HL]); break; // XOR A, (HL)
+         case 0xAF: xor(register_a); break; // XOR A, A
+
+         case 0xEE: xor(stream[register_pc++]); break; // XOR A, n
+
+         case 0xB0: or(register_b); break; // OR A, B
+         case 0xB1: or(register_c); break; // OR A, C
+         case 0xB2: or(register_d); break; // OR A, D
+         case 0xB3: or(register_e); break; // OR A, E
+         case 0xB4: or(register_h); break; // OR A, H
+         case 0xB5: or(register_l); break; // OR A, L
+         case 0xB6: or(stream[REGISTER_HL]); break; // OR A, (HL)
+         case 0xB7: or(register_a); break; // OR A, A
+
+         case 0xF6: or(stream[register_pc++]); break; // OR A, n
+
+         case 0xA0: and(register_b); break; // AND A, B
+         case 0xA1: and(register_c); break; // AND A, C
+         case 0xA2: and(register_d); break; // AND A, D
+         case 0xA3: and(register_e); break; // AND A, E
+         case 0xA4: and(register_h); break; // AND A, H
+         case 0xA5: and(register_l); break; // AND A, L
+         case 0xA6: and(stream[REGISTER_HL]); break; // AND A, (HL)
+         case 0xA7: and(register_a); break; // AND A, A
+
+         case 0xE6: and(stream[register_pc++]); break; // AND A, n
+
+         case 0xB8: cp(register_b); break; // CP A, B
+         case 0xB9: cp(register_c); break; // CP A, C
+         case 0xBA: cp(register_d); break; // CP A, D
+         case 0xBB: cp(register_e); break; // CP A, E
+         case 0xBC: cp(register_h); break; // CP A, H
+         case 0xBD: cp(register_l); break; // CP A, L
+         case 0xBE: cp(stream[REGISTER_HL]); break; // CP A, (HL)
+         case 0xBF: cp(register_a); break; // CP A, A
+
+         case 0xFE: cp(stream[register_pc++]); break; // CP A, n
+
+         case 0x04: inc(&register_b); break; // INC B
+         case 0x0C: inc(&register_c); break; // INC C
+         case 0x14: inc(&register_d); break; // INC D
+         case 0x1C: inc(&register_e); break; // INC E
+         case 0x24: inc(&register_h); break; // INC H
+         case 0x2C: inc(&register_l); break; // INC L
+         case 0x34: inc(&stream[REGISTER_HL]); break; // INC (HL)
+         case 0x3C: inc(&register_a); break; // INC A
+
+         case 0x05: dec(&register_b); break; // DEC B
+         case 0x0D: dec(&register_c); break; // DEC C
+         case 0x15: dec(&register_d); break; // DEC D
+         case 0x1D: dec(&register_e); break; // DEC E
+         case 0x25: dec(&register_h); break; // DEC H
+         case 0x2D: dec(&register_l); break; // DEC L
+         case 0x35: dec(&stream[REGISTER_HL]); break; // DEC (HL)
+         case 0x3D: dec(&register_a); break; // DEC A
+
+
+         // NOTE(law): 16-bit Arithmetic/Logic instructions
+         case 0x09: add16(REGISTER_BC); break; // ADD HL, BC
+         case 0x19: add16(REGISTER_DE); break; // ADD HL, DE
+         case 0x29: add16(REGISTER_HL); break; // ADD HL, HL
+         case 0x39: add16(register_sp); break; // ADD HL, SP
+
+         case 0x03: inc16_bytes(&register_b, &register_c); break; // INC BC
+         case 0x13: inc16_bytes(&register_d, &register_e); break; // INC DE
+         case 0x23: inc16_bytes(&register_h, &register_l); break; // INC HL
+         case 0x33: inc16(&register_sp); break; // INC SP
+
+         case 0x0B: dec16_bytes(&register_b, &register_c); break; // DEC BC
+         case 0x1B: dec16_bytes(&register_d, &register_e); break; // DEC DE
+         case 0x2B: dec16_bytes(&register_h, &register_l); break; // DEC HL
+         case 0x3B: dec16(&register_sp); break; // DEC SP
+
+         case 0xE8: // ADD SP, dd
+         {
+            signed char offset = stream[register_pc++];
+            signed short address = (signed short)register_sp + offset;
+            unsigned char half_sum = (register_sp & 0xF) + (offset & 0xF);
+
+            register_sp = (unsigned short)address;
+
+            register_f = 0;
+
+            if((half_sum & 0x10) == 0x10)
+            {
+               register_f |= FLAG_H_MASK;
+            }
+
+            if(address > 0xFF)
+            {
+               register_f |= FLAG_C_MASK;
+            }
+         } break;
+
+         case 0xF8: // LD HL, SP + dd
+         {
+            signed char offset = stream[register_pc++];
+            signed short address = (signed short)register_sp + offset;
+            unsigned char half_sum = (register_sp & 0xF) + (offset & 0xF);
+
+            register_h = address >> 8;
+            register_l = address & 0xFF;
+
+            register_f = 0;
+
+            if((half_sum & 0x10) == 0x10)
+            {
+               register_f |= FLAG_H_MASK;
+            }
+
+            if(address > 0xFF)
+            {
+               register_f |= FLAG_C_MASK;
+            }
+         } break;
+
+
+         // NOTE(law): CPU Control instructions
+         case 0x3F: // CCF
+         {
+            register_f &= ~FLAG_N_MASK;
+            register_f &= ~FLAG_H_MASK;
+            if(FLAG_C)
+            {
+               register_f &= ~FLAG_C_MASK;
+            }
+            else
+            {
+               register_f |= FLAG_C_MASK;
+            }
+         } break;
+
+         case 0x37: // SCF
+         {
+            register_f &= ~FLAG_N_MASK;
+            register_f &= ~FLAG_H_MASK;
+            register_f |= FLAG_C_MASK;
+         } break;
+
+         case 0x76: {halt = true;} break; // HALT
+         case 0x10: {stop = true; register_pc++;} break; // STOP
+         case 0xF3: {ime = false;} break;
+         case 0xFB: {ime = true;} break;
+
+
+         // NOTE(law): Jump instructions
+         case 0x18: jr(stream, true); break;    // JR PC + n
+         case 0x20: jr(stream, !FLAG_Z); break; // JR NZ, PC + n
+         case 0x28: jr(stream, FLAG_Z); break;  // JR Z, PC + n
+         case 0x30: jr(stream, !FLAG_C); break; // JR NC, PC + n
+         case 0x38: jr(stream, FLAG_C); break;  // JR C, PC + n
+
+         case 0xC2: jp(stream, !FLAG_Z); break; // JP NZ, nn
+         case 0xCA: jp(stream, FLAG_Z); break;  // JP Z, nn
+         case 0xD2: jp(stream, !FLAG_C); break; // JP NC, nn
+         case 0xDA: jp(stream, FLAG_C); break;  // JP C, nn
+         case 0xC3: jp(stream, true); // JP nn
+
+         case 0xC4: call(stream, !FLAG_Z); break; // CALL NZ, nn
+         case 0xCC: call(stream, FLAG_Z); break;  // CALL Z, nn
+         case 0xCD: call(stream, true); break;    // CALL nn
+         case 0xD4: call(stream, !FLAG_C); break; // CALL NC, nn
+         case 0xDC: call(stream, FLAG_C); break;  // CALL C, nn
+
+         case 0xE9: {register_pc = REGISTER_HL;} break; // JP HL
+
+         case 0xC0: ret(stream, !FLAG_Z); break; // RET NZ
+         case 0xC8: ret(stream, FLAG_Z); break;  // RET Z
+         case 0xC9: ret(stream, true); break;    // RET
+         case 0xD0: ret(stream, !FLAG_C); break; // RET NC
+         case 0xD8: ret(stream, FLAG_C); break;  // RET C
+
+         case 0xD9: {ret(stream, true); ime = true;} break; // RETI
+
+         case 0xC7: rst(stream, 0x00); break;
+         case 0xCF: rst(stream, 0x08); break;
+         case 0xD7: rst(stream, 0x10); break;
+         case 0xDF: rst(stream, 0x18); break;
+         case 0xE7: rst(stream, 0x20); break;
+         case 0xEF: rst(stream, 0x28); break;
+         case 0xF7: rst(stream, 0x30); break;
+         case 0xFF: rst(stream, 0x38); break;
+
+         case 0xD3: {assert(!"ILLEGAL_D3");} break;
+         case 0xDB: {assert(!"ILLEGAL_DB");} break;
+         case 0xDD: {assert(!"ILLEGAL_DD");} break;
+         case 0xE3: {assert(!"ILLEGAL_E3");} break;
+         case 0xE4: {assert(!"ILLEGAL_E4");} break;
+         case 0xEB: {assert(!"ILLEGAL_EB");} break;
+         case 0xEC: {assert(!"ILLEGAL_EC");} break;
+         case 0xED: {assert(!"ILLEGAL_ED");} break;
+         case 0xF4: {assert(!"ILLEGAL_F4");} break;
+         case 0xFC: {assert(!"ILLEGAL_FC");} break;
+         case 0xFD: {assert(!"ILLEGAL_FD");} break;
+
+         default:
+         {
+            printf("UNHANDLED OPCODE %x\n", opcode);
+            assert(0);
+         } break;
+      }
    }
 }
