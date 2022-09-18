@@ -122,10 +122,25 @@ main(int argument_count, char **arguments)
    fetch_and_execute(memory_map); // NOP
    fetch_and_execute(memory_map); // JP
 
+   handle_interrupts(memory_map);
    fetch_and_execute(memory_map);
+
+   handle_interrupts(memory_map);
    fetch_and_execute(memory_map);
+
+   handle_interrupts(memory_map);
    fetch_and_execute(memory_map);
+
+   handle_interrupts(memory_map);
    fetch_and_execute(memory_map);
+
+   handle_interrupts(memory_map);
+   fetch_and_execute(memory_map);
+
+   handle_interrupts(memory_map);
+   fetch_and_execute(memory_map);
+
+   handle_interrupts(memory_map);
    fetch_and_execute(memory_map);
 
    printf("Finished fetching and executing instructions.\n");

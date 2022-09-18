@@ -1002,25 +1002,52 @@ static bool halt;
 static bool stop;
 static bool ime;
 
+#define REGISTER_BC (((unsigned short)register_b << 8) | (unsigned short)register_c)
+#define REGISTER_DE (((unsigned short)register_d << 8) | (unsigned short)register_e)
+#define REGISTER_HL (((unsigned short)register_h << 8) | (unsigned short)register_l)
+#define REGISTER_AF (((unsigned short)register_a << 8) | (unsigned short)register_f)
+
 #define FLAG_Z_BIT 7
 #define FLAG_N_BIT 6
 #define FLAG_H_BIT 5
 #define FLAG_C_BIT 4
-
-#define FLAG_Z ((register_f >> FLAG_Z_BIT) & 0x1)
-#define FLAG_N ((register_f >> FLAG_N_BIT) & 0x1)
-#define FLAG_H ((register_f >> FLAG_H_BIT) & 0x1)
-#define FLAG_C ((register_f >> FLAG_C_BIT) & 0x1)
 
 #define FLAG_Z_MASK (1 << FLAG_Z_BIT)
 #define FLAG_N_MASK (1 << FLAG_N_BIT)
 #define FLAG_H_MASK (1 << FLAG_H_BIT)
 #define FLAG_C_MASK (1 << FLAG_C_BIT)
 
-#define REGISTER_BC (((unsigned short)register_b << 8) | (unsigned short)register_c)
-#define REGISTER_DE (((unsigned short)register_d << 8) | (unsigned short)register_e)
-#define REGISTER_HL (((unsigned short)register_h << 8) | (unsigned short)register_l)
-#define REGISTER_AF (((unsigned short)register_a << 8) | (unsigned short)register_f)
+#define FLAG_Z ((register_f >> FLAG_Z_BIT) & 0x1)
+#define FLAG_N ((register_f >> FLAG_N_BIT) & 0x1)
+#define FLAG_H ((register_f >> FLAG_H_BIT) & 0x1)
+#define FLAG_C ((register_f >> FLAG_C_BIT) & 0x1)
+
+#define REGISTER_IE stream[0xFFFF]
+#define REGISTER_IF stream[0xFF0F]
+
+#define INTERRUPT_VBLANK_BIT   0
+#define INTERRUPT_LCD_STAT_BIT 1
+#define INTERRUPT_TIMER_BIT    2
+#define INTERRUPT_SERIAL_BIT   3
+#define INTERRUPT_JOYPAD_BIT   4
+
+#define INTERRUPT_VBLANK_MASK   (1 << INTERRUPT_VBLANK_BIT)
+#define INTERRUPT_LCD_STAT_MASK (1 << INTERRUPT_LCD_STAT_BIT)
+#define INTERRUPT_TIMER_MASK    (1 << INTERRUPT_TIMER_BIT)
+#define INTERRUPT_SERIAL_MASK   (1 << INTERRUPT_SERIAL_BIT)
+#define INTERRUPT_JOYPAD_MASK   (1 << INTERRUPT_JOYPAD_BIT)
+
+#define ENABLE_VBLANK   ((REGISTER_IE >> INTERRUPT_VBLANK_BIT)   & 0x1)
+#define ENABLE_LCD_STAT ((REGISTER_IE >> INTERRUPT_LCD_STAT_BIT) & 0x1)
+#define ENABLE_TIMER    ((REGISTER_IE >> INTERRUPT_TIMER_BIT)    & 0x1)
+#define ENABLE_SERIAL   ((REGISTER_IE >> INTERRUPT_SERIAL_BIT)   & 0x1)
+#define ENABLE_JOYPAD   ((REGISTER_IE >> INTERRUPT_JOYPAD_BIT)   & 0x1)
+
+#define REQUEST_VBLANK   ((REGISTER_IF >> INTERRUPT_VBLANK_BIT)   & 0x1)
+#define REQUEST_LCD_STAT ((REGISTER_IF >> INTERRUPT_LCD_STAT_BIT) & 0x1)
+#define REQUEST_TIMER    ((REGISTER_IF >> INTERRUPT_TIMER_BIT)    & 0x1)
+#define REQUEST_SERIAL   ((REGISTER_IF >> INTERRUPT_SERIAL_BIT)   & 0x1)
+#define REQUEST_JOYPAD   ((REGISTER_IF >> INTERRUPT_JOYPAD_BIT)   & 0x1)
 
 static void
 add(unsigned char value)
@@ -2430,5 +2457,39 @@ fetch_and_execute(unsigned char *stream)
             assert(0);
          } break;
       }
+   }
+}
+
+static void
+handle_interrupts(unsigned char *stream)
+{
+   if(ime && (REGISTER_IE & REGISTER_IF))
+   {
+      // NOTE(law): Disable interrupts for the duration of the handler.
+      ime = false;
+
+      // NOTE(law): The priority of interrupts are ordered by increasing bit
+      // index in register_if (i.e. VBlank with bit index 0 has the highest
+      // priority).
+      unsigned int bit_index = 0;
+      for(; bit_index <= 4; ++bit_index)
+      {
+         if((REGISTER_IF >> bit_index) & 0x1)
+         {
+            break;
+         }
+      }
+      assert(bit_index <= 4);
+
+      // NOTE(law): Reset the bit of the interrupt we plan to handle.
+      REGISTER_IF &= ~(1 << bit_index);
+
+      // TODO(law): Wait for two cycles using NOPs.
+
+      stream[--register_sp] = (register_pc >> 8);
+      stream[--register_sp] = (register_pc & 0xFF);
+
+      unsigned short isr_addresses[] = {0x40, 0x48, 0x50, 0x58, 0x60};
+      register_pc = isr_addresses[bit_index];
    }
 }
