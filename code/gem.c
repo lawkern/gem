@@ -622,13 +622,14 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0x7E: {printf("LD\tA, (HL)");} break;
             case 0x7F: {printf("LD\tA, A");} break;
 
-            case 0xF2: {printf("LDH\tA, (FF00 + C)");} break;
-            case 0xE2: {printf("LDH\t(FF00 + C), A");} break;
-
             case 0x06: {printf("LD\tB, 0x%02x", stream[offset++]);} break;
+            case 0x0E: {printf("LD\tC, 0x%02x", stream[offset++]);} break;
             case 0x16: {printf("LD\tD, 0x%02x", stream[offset++]);} break;
+            case 0x1E: {printf("LD\tE, 0x%02x", stream[offset++]);} break;
             case 0x26: {printf("LD\tH, 0x%02x", stream[offset++]);} break;
+            case 0x2E: {printf("LD\tL, 0x%02x", stream[offset++]);} break;
             case 0x36: {printf("LD\t(HL), 0x%02x", stream[offset++]);} break;
+            case 0x3E: {printf("LD\tA, 0x%02x", stream[offset++]);} break;
 
             case 0x0A: {printf("LD\tA, (BC)");} break;
             case 0x1A: {printf("LD\tA, (DE)");} break;
@@ -643,17 +644,15 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0x02: {printf("LD\t(BC), A");} break;
             case 0x12: {printf("LD\t(DE), A");} break;
 
-            case 0x0E: {printf("LD\tC, 0x%02x", stream[offset++]);} break;
-            case 0x1E: {printf("LD\tE, 0x%02x", stream[offset++]);} break;
-            case 0x2E: {printf("LD\tL, 0x%02x", stream[offset++]);} break;
-            case 0x3E: {printf("LD\tA, 0x%02x", stream[offset++]);} break;
-
             case 0xEA:
             {
                unsigned short operand = *((unsigned short *)(stream + offset));
                offset += 2;
                printf("LD\t(0x%04x), A", operand);
             } break;
+
+            case 0xF2: {printf("LDH\tA, (FF00 + C)");} break;
+            case 0xE2: {printf("LDH\t(FF00 + C), A");} break;
 
             case 0xF0: {printf("LDH\tA, (FF00 + 0x%02x)", stream[offset++]);} break;
             case 0xE0: {printf("LDH\t(FF00 + 0x%02x), A", stream[offset++]);} break;
@@ -730,6 +729,12 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0x86: {printf("ADD\tA, (HL)");} break;
             case 0x87: {printf("ADD\tA");} break;
 
+            case 0xC6:
+            {
+               unsigned char operand = *(stream + offset++);
+               printf("ADD\tA, 0x%02x", operand);
+            } break;
+
             case 0x88: {printf("ADC\tA, B");} break;
             case 0x89: {printf("ADC\tA, C");} break;
             case 0x8A: {printf("ADC\tA, D");} break;
@@ -738,18 +743,6 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0x8D: {printf("ADC\tA, L");} break;
             case 0x8E: {printf("ADC\tA, (HL)");} break;
             case 0x8F: {printf("ADC\tA, A");} break;
-
-            case 0xC6:
-            {
-               unsigned char operand = *(stream + offset++);
-               printf("ADD\tA, 0x%02x", operand);
-            } break;
-
-            case 0xE8:
-            {
-               unsigned char operand = *(stream + offset++);
-               printf("ADD\tSP, 0x%02x", operand);
-            } break;
 
             case 0xCE:
             {
@@ -864,8 +857,8 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
             case 0x2B: {printf("DEC\tHL");} break;
             case 0x3B: {printf("DEC\tSP");} break;
 
+            case 0xE8: {printf("ADD\tSP, 0x%02x", stream[offset++]);} break;
             case 0xF8: {printf("LD\tHL, SP + 0x%02x", stream[offset++]);} break;
-
 
             // NOTE(law): CPU Control instructions
             case 0x3F: {printf("CCF");} break;
@@ -878,6 +871,43 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
 
 
             // NOTE(law): Jump instructions
+            case 0xE9: {printf("JP\tHL");} break;
+
+            case 0xC3:
+            {
+               unsigned short operand = *(unsigned short *)(stream + offset);
+               offset += 2;
+               printf("JP\t0x%04x", operand);
+            } break;
+
+            case 0xC2:
+            {
+               unsigned short operand = *(unsigned short *)(stream + offset);
+               offset += 2;
+               printf("JP\tNZ, 0x%04x", operand);
+            } break;
+
+            case 0xCA:
+            {
+               unsigned short operand = *(unsigned short *)(stream + offset);
+               offset += 2;
+               printf("JP\tZ, 0x%04x", operand);
+            } break;
+
+            case 0xD2:
+            {
+               unsigned short operand = *(unsigned short *)(stream + offset);
+               offset += 2;
+               printf("JP\tNC, 0x%04x", operand);
+            } break;
+
+            case 0xDA:
+            {
+               unsigned short operand = *(unsigned short *)(stream + offset);
+               offset += 2;
+               printf("JP\tC, 0x%04x", operand);
+            } break;
+
             case 0x18: {printf("JR\tPC + 0x%02x", stream[offset++]);} break;
             case 0x20: {printf("JR\tNZ, PC + 0x%02x", stream[offset++]);} break;
             case 0x28: {printf("JR\tZ, PC + 0x%02x", stream[offset++]);} break;
@@ -919,50 +949,13 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
                printf("CALL\tC, 0x%04x", operand);
             } break;
 
-            case 0xE9: {printf("JP\tHL");} break;
-
             case 0xC0: {printf("RET\tNZ");} break;
             case 0xC8: {printf("RET\tZ");} break;
             case 0xC9: {printf("RET");} break;
-
             case 0xD0: {printf("RET\tNC");} break;
             case 0xD8: {printf("RET\tC");} break;
+
             case 0xD9: {printf("RETI");} break;
-
-            case 0xC2:
-            {
-               unsigned short operand = *(unsigned short *)(stream + offset);
-               offset += 2;
-               printf("JP\tNZ, 0x%04x", operand);
-            } break;
-
-            case 0xC3:
-            {
-               unsigned short operand = *(unsigned short *)(stream + offset);
-               offset += 2;
-               printf("JP\t0x%04x", operand);
-            } break;
-
-            case 0xCA:
-            {
-               unsigned short operand = *(unsigned short *)(stream + offset);
-               offset += 2;
-               printf("JP\tZ, 0x%04x", operand);
-            } break;
-
-            case 0xD2:
-            {
-               unsigned short operand = *(unsigned short *)(stream + offset);
-               offset += 2;
-               printf("JP\tNC, 0x%04x", operand);
-            } break;
-
-            case 0xDA:
-            {
-               unsigned short operand = *(unsigned short *)(stream + offset);
-               offset += 2;
-               printf("JP\tC, 0x%04x", operand);
-            } break;
 
             case 0xC7: {printf("RST\t00H");} break;
             case 0xCF: {printf("RST\t08H");} break;
@@ -1393,6 +1386,228 @@ rst(unsigned char *stream, unsigned char address_low)
 }
 
 static void
+rla()
+{
+   unsigned char previous_bit7 = (register_a >> 7);
+   unsigned char previous_c = FLAG_C;
+
+   register_a <<= 1;
+
+   // NOTE(law): Set bit 0 of value to the previous value of the Carry flag
+   register_a = (register_a & ~0x01) | (previous_c);
+
+   register_f = 0;
+
+   // NOTE(law): Set the Carry flag to the pre-shift value of bit 7.
+   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
+}
+
+static void
+rlca()
+{
+   register_a <<= 1;
+
+   register_f = 0;
+
+   // NOTE(law): Set the Carry flag to the value of bit 0 (i.e. pre-shift value
+   // of bit 7).
+   register_f |= ((register_a & 0x01) << FLAG_C_BIT);
+}
+
+static void
+rra()
+{
+   unsigned char previous_bit0 = (register_a & 0x01);
+   unsigned char previous_c = FLAG_C;
+
+   register_a >>= 1;
+
+   // NOTE(law): Set bit 7 of value to the previous value of the Carry flag
+   register_a = (register_a & ~(1 << 7)) | (previous_c << 7);
+
+   register_f = 0;
+
+   // NOTE(law): Set the Carry flag to the pre-shift value of bit 7.
+   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
+}
+
+static void
+rrca()
+{
+   register_a >>= 1;
+
+   register_f = 0;
+
+   // NOTE(law): Set the Carry flag to the value of bit 7 (i.e. pre-shift value
+   // of bit 0).
+   register_f |= ((register_a >> 7) << FLAG_C_BIT);
+}
+
+static void
+rl(unsigned char *value)
+{
+   unsigned char previous_bit7 = (*value >> 7);
+   unsigned char previous_c = FLAG_C;
+
+   *value <<= 1;
+
+   // NOTE(law): Set bit 0 of value to the previous value of the Carry flag
+   *value = (*value & ~0x01) | (previous_c);
+
+   register_f = 0;
+
+   // NOTE(law): Set the Carry flag to the pre-shift value of bit 7.
+   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
+
+   if(*value == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+}
+
+static void
+rlc(unsigned char *value)
+{
+   *value <<= 1;
+
+   register_f = 0;
+
+   // NOTE(law): Set the Carry flag to the value of bit 0 (i.e. pre-shift value
+   // of bit 7).
+   register_f |= ((*value & 0x01) << FLAG_C_BIT);
+
+   if(*value == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+}
+
+static void
+rr(unsigned char *value)
+{
+   unsigned char previous_bit0 = (*value & 0x01);
+   unsigned char previous_c = FLAG_C;
+
+   *value >>= 1;
+
+   // NOTE(law): Set bit 7 of value to the previous value of the Carry flag
+   *value = (*value & ~(1 << 7)) | (previous_c << 7);
+
+   register_f = 0;
+
+   // NOTE(law): Set the Carry flag to the pre-shift value of bit 0.
+   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
+
+   if(*value == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+}
+
+static void
+rrc(unsigned char *value)
+{
+   *value >>= 1;
+
+   register_f = 0;
+
+   // NOTE(law): Set the Carry flag to the value of bit 7 (i.e. pre-shift value
+   // of bit 0).
+   register_f |= ((*value >> 7) << FLAG_C_BIT);
+
+   if(*value == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+}
+
+static void
+bit(unsigned int bit_index, unsigned char value)
+{
+   // NOTE(law) Update the Zero flag based on the value of specified bit index
+   // of the value.
+
+   unsigned char bit_value = ((value >> bit_index) & 0x01);
+   register_f = (register_f & ~(FLAG_Z_MASK)) | (bit_value << FLAG_Z_BIT);
+
+   register_f &= ~FLAG_N_MASK;
+   register_f |= FLAG_H_MASK;
+}
+
+static void
+set(unsigned int bit_index, unsigned char *value)
+{
+   *value |= (1 << bit_index);
+}
+
+static void
+res(unsigned int bit_index, unsigned char *value)
+{
+   *value &= ~(1 << bit_index);
+}
+
+static void
+sla(unsigned char *value)
+{
+   unsigned char previous_bit7 = (*value >> 7);
+
+   *value <<= 1;
+
+   register_f = 0;
+   if(*value == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+
+   register_f |= (previous_bit7 << FLAG_C_BIT);
+}
+
+static void
+sra(unsigned char *value)
+{
+   unsigned char previous_bit0 = (*value & 0x01);
+
+   // TODO(law): Confirm that casting to a signed value actually produces an
+   // arithmetic shift in this case.
+   *value = ((signed short)value >> 1);
+
+   register_f = 0;
+   if(*value == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+
+   register_f |= (previous_bit0 << FLAG_C_BIT);
+}
+
+static void
+swap(unsigned char *value)
+{
+   unsigned char high_nibble = (*value >> 4);
+   unsigned char low_nibble = (*value & 0xF);
+
+   *value = (low_nibble << 4) | (high_nibble & 0xF);
+}
+
+static void
+srl(unsigned char *value)
+{
+   unsigned char previous_bit0 = (*value & 0x01);
+
+   // TODO(law): Confirm that using an unsigned value actually produces a
+   // logical shift in this case.
+   *value >>= 1;
+
+   register_f = 0;
+   if(*value == 0)
+   {
+      register_f |= FLAG_Z_MASK;
+   }
+
+   register_f |= (previous_bit0 << FLAG_C_BIT);
+}
+
+static void
 fetch_and_execute(unsigned char *stream)
 {
    unsigned char opcode = stream[register_pc++];
@@ -1404,295 +1619,295 @@ fetch_and_execute(unsigned char *stream)
       switch(opcode)
       {
          // NOTE(law): Rotate and Shift instructions
-         case 0x00: {assert(!"RLC\tB");} break;
-         case 0x01: {assert(!"RLC\tC");} break;
-         case 0x02: {assert(!"RLC\tD");} break;
-         case 0x03: {assert(!"RLC\tE");} break;
-         case 0x04: {assert(!"RLC\tH");} break;
-         case 0x05: {assert(!"RLC\tL");} break;
-         case 0x06: {assert(!"RLC\t(HL)");} break;
-         case 0x07: {assert(!"RLC\tA");} break;
+         case 0x00: rlc(&register_b); break;
+         case 0x01: rlc(&register_c); break;
+         case 0x02: rlc(&register_d); break;
+         case 0x03: rlc(&register_e); break;
+         case 0x04: rlc(&register_h); break;
+         case 0x05: rlc(&register_l); break;
+         case 0x06: rlc(&stream[REGISTER_HL]); break;
+         case 0x07: rlc(&register_a); break;
 
-         case 0x08: {assert(!"RRC\tB");} break;
-         case 0x09: {assert(!"RRC\tC");} break;
-         case 0x0A: {assert(!"RRC\tD");} break;
-         case 0x0B: {assert(!"RRC\tE");} break;
-         case 0x0C: {assert(!"RRC\tH");} break;
-         case 0x0D: {assert(!"RRC\tL");} break;
-         case 0x0E: {assert(!"RRC\t(HL)");} break;
-         case 0x0F: {assert(!"RRC\tA");} break;
+         case 0x08: rrc(&register_b); break;
+         case 0x09: rrc(&register_c); break;
+         case 0x0A: rrc(&register_d); break;
+         case 0x0B: rrc(&register_e); break;
+         case 0x0C: rrc(&register_h); break;
+         case 0x0D: rrc(&register_l); break;
+         case 0x0E: rrc(&stream[REGISTER_HL]); break;
+         case 0x0F: rrc(&register_a); break;
 
-         case 0x10: {assert(!"RL\tB");} break;
-         case 0x11: {assert(!"RL\tC");} break;
-         case 0x12: {assert(!"RL\tD");} break;
-         case 0x13: {assert(!"RL\tE");} break;
-         case 0x14: {assert(!"RL\tH");} break;
-         case 0x15: {assert(!"RL\tL");} break;
-         case 0x16: {assert(!"RL\t(HL)");} break;
-         case 0x17: {assert(!"RL\tA");} break;
+         case 0x10: rl(&register_b); break;
+         case 0x11: rl(&register_c); break;
+         case 0x12: rl(&register_d); break;
+         case 0x13: rl(&register_e); break;
+         case 0x14: rl(&register_h); break;
+         case 0x15: rl(&register_l); break;
+         case 0x16: rl(&stream[REGISTER_HL]); break;
+         case 0x17: rl(&register_a); break;
 
-         case 0x18: {assert(!"RR\tB");} break;
-         case 0x19: {assert(!"RR\tC");} break;
-         case 0x1A: {assert(!"RR\tD");} break;
-         case 0x1B: {assert(!"RR\tE");} break;
-         case 0x1C: {assert(!"RR\tH");} break;
-         case 0x1D: {assert(!"RR\tL");} break;
-         case 0x1E: {assert(!"RR\t(HL)");} break;
-         case 0x1F: {assert(!"RR\tA");} break;
+         case 0x18: rr(&register_b); break;
+         case 0x19: rr(&register_c); break;
+         case 0x1A: rr(&register_d); break;
+         case 0x1B: rr(&register_e); break;
+         case 0x1C: rr(&register_h); break;
+         case 0x1D: rr(&register_l); break;
+         case 0x1E: rr(&stream[REGISTER_HL]); break;
+         case 0x1F: rr(&register_a); break;
 
-         case 0x20: {assert(!"SLA\tB");} break;
-         case 0x21: {assert(!"SLA\tC");} break;
-         case 0x22: {assert(!"SLA\tD");} break;
-         case 0x23: {assert(!"SLA\tE");} break;
-         case 0x24: {assert(!"SLA\tH");} break;
-         case 0x25: {assert(!"SLA\tL");} break;
-         case 0x26: {assert(!"SLA\t(HL)");} break;
-         case 0x27: {assert(!"SLA\tA");} break;
+         case 0x20: sla(&register_b); break;
+         case 0x21: sla(&register_c); break;
+         case 0x22: sla(&register_d); break;
+         case 0x23: sla(&register_e); break;
+         case 0x24: sla(&register_h); break;
+         case 0x25: sla(&register_l); break;
+         case 0x26: sla(&stream[REGISTER_HL]); break;
+         case 0x27: sla(&register_a); break;
 
-         case 0x28: {assert(!"SRA\tB");} break;
-         case 0x29: {assert(!"SRA\tC");} break;
-         case 0x2A: {assert(!"SRA\tD");} break;
-         case 0x2B: {assert(!"SRA\tE");} break;
-         case 0x2C: {assert(!"SRA\tH");} break;
-         case 0x2D: {assert(!"SRA\tL");} break;
-         case 0x2E: {assert(!"SRA\t(HL)");} break;
-         case 0x2F: {assert(!"SRA\tA");} break;
+         case 0x28: sra(&register_b); break;
+         case 0x29: sra(&register_c); break;
+         case 0x2A: sra(&register_d); break;
+         case 0x2B: sra(&register_e); break;
+         case 0x2C: sra(&register_h); break;
+         case 0x2D: sra(&register_l); break;
+         case 0x2E: sra(&stream[REGISTER_HL]); break;
+         case 0x2F: sra(&register_a); break;
 
-         case 0x30: {assert(!"SWAP\tB");} break;
-         case 0x31: {assert(!"SWAP\tC");} break;
-         case 0x32: {assert(!"SWAP\tD");} break;
-         case 0x33: {assert(!"SWAP\tE");} break;
-         case 0x34: {assert(!"SWAP\tH");} break;
-         case 0x35: {assert(!"SWAP\tL");} break;
-         case 0x36: {assert(!"SWAP\t(HL)");} break;
-         case 0x37: {assert(!"SWAP\tA");} break;
+         case 0x30: swap(&register_b); break;
+         case 0x31: swap(&register_c); break;
+         case 0x32: swap(&register_d); break;
+         case 0x33: swap(&register_e); break;
+         case 0x34: swap(&register_h); break;
+         case 0x35: swap(&register_l); break;
+         case 0x36: swap(&stream[REGISTER_HL]); break;
+         case 0x37: swap(&register_a); break;
 
-         case 0x38: {assert(!"SRL\tB");} break;
-         case 0x39: {assert(!"SRL\tC");} break;
-         case 0x3A: {assert(!"SRL\tD");} break;
-         case 0x3B: {assert(!"SRL\tE");} break;
-         case 0x3C: {assert(!"SRL\tH");} break;
-         case 0x3D: {assert(!"SRL\tL");} break;
-         case 0x3E: {assert(!"SRL\t(HL)");} break;
-         case 0x3F: {assert(!"SRL\tA");} break;
+         case 0x38: srl(&register_b); break;
+         case 0x39: srl(&register_c); break;
+         case 0x3A: srl(&register_d); break;
+         case 0x3B: srl(&register_e); break;
+         case 0x3C: srl(&register_h); break;
+         case 0x3D: srl(&register_l); break;
+         case 0x3E: srl(&stream[REGISTER_HL]); break;
+         case 0x3F: srl(&register_a); break;
 
 
          // NOTE(law): Single-bit Operation instructions
-         case 0x40: {assert(!"BIT\t0, B");} break;
-         case 0x41: {assert(!"BIT\t0, C");} break;
-         case 0x42: {assert(!"BIT\t0, D");} break;
-         case 0x43: {assert(!"BIT\t0, E");} break;
-         case 0x44: {assert(!"BIT\t0, H");} break;
-         case 0x45: {assert(!"BIT\t0, L");} break;
-         case 0x46: {assert(!"BIT\t0, (HL)");} break;
-         case 0x47: {assert(!"BIT\t0, A");} break;
+         case 0x40: bit(0, register_b); break;
+         case 0x41: bit(0, register_c); break;
+         case 0x42: bit(0, register_d); break;
+         case 0x43: bit(0, register_e); break;
+         case 0x44: bit(0, register_h); break;
+         case 0x45: bit(0, register_l); break;
+         case 0x46: bit(0, stream[REGISTER_HL]); break;
+         case 0x47: bit(0, register_a); break;
 
-         case 0x48: {assert(!"BIT\t1, B");} break;
-         case 0x49: {assert(!"BIT\t1, C");} break;
-         case 0x4A: {assert(!"BIT\t1, D");} break;
-         case 0x4B: {assert(!"BIT\t1, E");} break;
-         case 0x4C: {assert(!"BIT\t1, H");} break;
-         case 0x4D: {assert(!"BIT\t1, L");} break;
-         case 0x4E: {assert(!"BIT\t1, (HL)");} break;
-         case 0x4F: {assert(!"BIT\t1, A");} break;
+         case 0x48: bit(1, register_b); break;
+         case 0x49: bit(1, register_c); break;
+         case 0x4A: bit(1, register_d); break;
+         case 0x4B: bit(1, register_e); break;
+         case 0x4C: bit(1, register_h); break;
+         case 0x4D: bit(1, register_l); break;
+         case 0x4E: bit(1, stream[REGISTER_HL]); break;
+         case 0x4F: bit(1, register_a); break;
 
-         case 0x50: {assert(!"BIT\t2, B");} break;
-         case 0x51: {assert(!"BIT\t2, C");} break;
-         case 0x52: {assert(!"BIT\t2, D");} break;
-         case 0x53: {assert(!"BIT\t2, E");} break;
-         case 0x54: {assert(!"BIT\t2, H");} break;
-         case 0x55: {assert(!"BIT\t2, L");} break;
-         case 0x56: {assert(!"BIT\t2, (HL)");} break;
-         case 0x57: {assert(!"BIT\t2, A");} break;
+         case 0x50: bit(2, register_b); break;
+         case 0x51: bit(2, register_c); break;
+         case 0x52: bit(2, register_d); break;
+         case 0x53: bit(2, register_e); break;
+         case 0x54: bit(2, register_h); break;
+         case 0x55: bit(2, register_l); break;
+         case 0x56: bit(2, stream[REGISTER_HL]); break;
+         case 0x57: bit(2, register_a); break;
 
-         case 0x58: {assert(!"BIT\t3, B");} break;
-         case 0x59: {assert(!"BIT\t3, C");} break;
-         case 0x5A: {assert(!"BIT\t3, D");} break;
-         case 0x5B: {assert(!"BIT\t3, E");} break;
-         case 0x5C: {assert(!"BIT\t3, H");} break;
-         case 0x5D: {assert(!"BIT\t3, L");} break;
-         case 0x5E: {assert(!"BIT\t3, (HL)");} break;
-         case 0x5F: {assert(!"BIT\t3, A");} break;
+         case 0x58: bit(3, register_b); break;
+         case 0x59: bit(3, register_c); break;
+         case 0x5A: bit(3, register_d); break;
+         case 0x5B: bit(3, register_e); break;
+         case 0x5C: bit(3, register_h); break;
+         case 0x5D: bit(3, register_l); break;
+         case 0x5E: bit(3, stream[REGISTER_HL]); break;
+         case 0x5F: bit(3, register_a); break;
 
-         case 0x60: {assert(!"BIT\t4, B");} break;
-         case 0x61: {assert(!"BIT\t4, C");} break;
-         case 0x62: {assert(!"BIT\t4, D");} break;
-         case 0x63: {assert(!"BIT\t4, E");} break;
-         case 0x64: {assert(!"BIT\t4, H");} break;
-         case 0x65: {assert(!"BIT\t4, L");} break;
-         case 0x66: {assert(!"BIT\t4, (HL)");} break;
-         case 0x67: {assert(!"BIT\t4, A");} break;
+         case 0x60: bit(4, register_b); break;
+         case 0x61: bit(4, register_c); break;
+         case 0x62: bit(4, register_d); break;
+         case 0x63: bit(4, register_e); break;
+         case 0x64: bit(4, register_h); break;
+         case 0x65: bit(4, register_l); break;
+         case 0x66: bit(4, stream[REGISTER_HL]); break;
+         case 0x67: bit(4, register_a); break;
 
-         case 0x68: {assert(!"BIT\t5, B");} break;
-         case 0x69: {assert(!"BIT\t5, C");} break;
-         case 0x6A: {assert(!"BIT\t5, D");} break;
-         case 0x6B: {assert(!"BIT\t5, E");} break;
-         case 0x6C: {assert(!"BIT\t5, H");} break;
-         case 0x6D: {assert(!"BIT\t5, L");} break;
-         case 0x6E: {assert(!"BIT\t5, (HL)");} break;
-         case 0x6F: {assert(!"BIT\t5, A");} break;
+         case 0x68: bit(5, register_b); break;
+         case 0x69: bit(5, register_c); break;
+         case 0x6A: bit(5, register_d); break;
+         case 0x6B: bit(5, register_e); break;
+         case 0x6C: bit(5, register_h); break;
+         case 0x6D: bit(5, register_l); break;
+         case 0x6E: bit(5, stream[REGISTER_HL]); break;
+         case 0x6F: bit(5, register_a); break;
 
-         case 0x70: {assert(!"BIT\t6, B");} break;
-         case 0x71: {assert(!"BIT\t6, C");} break;
-         case 0x72: {assert(!"BIT\t6, D");} break;
-         case 0x73: {assert(!"BIT\t6, E");} break;
-         case 0x74: {assert(!"BIT\t6, H");} break;
-         case 0x75: {assert(!"BIT\t6, L");} break;
-         case 0x76: {assert(!"BIT\t6, (HL)");} break;
-         case 0x77: {assert(!"BIT\t6, A");} break;
+         case 0x70: bit(6, register_b); break;
+         case 0x71: bit(6, register_c); break;
+         case 0x72: bit(6, register_d); break;
+         case 0x73: bit(6, register_e); break;
+         case 0x74: bit(6, register_h); break;
+         case 0x75: bit(6, register_l); break;
+         case 0x76: bit(6, stream[REGISTER_HL]); break;
+         case 0x77: bit(6, register_a); break;
 
-         case 0x78: {assert(!"BIT\t7, B");} break;
-         case 0x79: {assert(!"BIT\t7, C");} break;
-         case 0x7A: {assert(!"BIT\t7, D");} break;
-         case 0x7B: {assert(!"BIT\t7, E");} break;
-         case 0x7C: {assert(!"BIT\t7, H");} break;
-         case 0x7D: {assert(!"BIT\t7, L");} break;
-         case 0x7E: {assert(!"BIT\t7, (HL)");} break;
-         case 0x7F: {assert(!"BIT\t7, A");} break;
+         case 0x78: bit(7, register_b); break;
+         case 0x79: bit(7, register_c); break;
+         case 0x7A: bit(7, register_d); break;
+         case 0x7B: bit(7, register_e); break;
+         case 0x7C: bit(7, register_h); break;
+         case 0x7D: bit(7, register_l); break;
+         case 0x7E: bit(7, stream[REGISTER_HL]); break;
+         case 0x7F: bit(7, register_a); break;
 
-         case 0x80: {assert(!"RES\t0, B");} break;
-         case 0x81: {assert(!"RES\t0, C");} break;
-         case 0x82: {assert(!"RES\t0, D");} break;
-         case 0x83: {assert(!"RES\t0, E");} break;
-         case 0x84: {assert(!"RES\t0, H");} break;
-         case 0x85: {assert(!"RES\t0, L");} break;
-         case 0x86: {assert(!"RES\t0, (HL)");} break;
-         case 0x87: {assert(!"RES\t0, A");} break;
+         case 0x80: res(0, &register_b); break;
+         case 0x81: res(0, &register_c); break;
+         case 0x82: res(0, &register_d); break;
+         case 0x83: res(0, &register_e); break;
+         case 0x84: res(0, &register_h); break;
+         case 0x85: res(0, &register_l); break;
+         case 0x86: res(0, &stream[REGISTER_HL]); break;
+         case 0x87: res(0, &register_a); break;
 
-         case 0x88: {assert(!"RES\t1, B");} break;
-         case 0x89: {assert(!"RES\t1, C");} break;
-         case 0x8A: {assert(!"RES\t1, D");} break;
-         case 0x8B: {assert(!"RES\t1, E");} break;
-         case 0x8C: {assert(!"RES\t1, H");} break;
-         case 0x8D: {assert(!"RES\t1, L");} break;
-         case 0x8E: {assert(!"RES\t1, (HL)");} break;
-         case 0x8F: {assert(!"RES\t1, A");} break;
+         case 0x88: res(1, &register_b); break;
+         case 0x89: res(1, &register_c); break;
+         case 0x8A: res(1, &register_d); break;
+         case 0x8B: res(1, &register_e); break;
+         case 0x8C: res(1, &register_h); break;
+         case 0x8D: res(1, &register_l); break;
+         case 0x8E: res(1, &stream[REGISTER_HL]); break;
+         case 0x8F: res(1, &register_a); break;
 
-         case 0x90: {assert(!"RES\t2, B");} break;
-         case 0x91: {assert(!"RES\t2, C");} break;
-         case 0x92: {assert(!"RES\t2, D");} break;
-         case 0x93: {assert(!"RES\t2, E");} break;
-         case 0x94: {assert(!"RES\t2, H");} break;
-         case 0x95: {assert(!"RES\t2, L");} break;
-         case 0x96: {assert(!"RES\t2, (HL)");} break;
-         case 0x97: {assert(!"RES\t2, A");} break;
+         case 0x90: res(2, &register_b); break;
+         case 0x91: res(2, &register_c); break;
+         case 0x92: res(2, &register_d); break;
+         case 0x93: res(2, &register_e); break;
+         case 0x94: res(2, &register_h); break;
+         case 0x95: res(2, &register_l); break;
+         case 0x96: res(2, &stream[REGISTER_HL]); break;
+         case 0x97: res(2, &register_a); break;
 
-         case 0x98: {assert(!"RES\t3, B");} break;
-         case 0x99: {assert(!"RES\t3, C");} break;
-         case 0x9A: {assert(!"RES\t3, D");} break;
-         case 0x9B: {assert(!"RES\t3, E");} break;
-         case 0x9C: {assert(!"RES\t3, H");} break;
-         case 0x9D: {assert(!"RES\t3, L");} break;
-         case 0x9E: {assert(!"RES\t3, (HL)");} break;
-         case 0x9F: {assert(!"RES\t3, A");} break;
+         case 0x98: res(3, &register_b); break;
+         case 0x99: res(3, &register_c); break;
+         case 0x9A: res(3, &register_d); break;
+         case 0x9B: res(3, &register_e); break;
+         case 0x9C: res(3, &register_h); break;
+         case 0x9D: res(3, &register_l); break;
+         case 0x9E: res(3, &stream[REGISTER_HL]); break;
+         case 0x9F: res(3, &register_a); break;
 
-         case 0xA0: {assert(!"RES\t4, B");} break;
-         case 0xA1: {assert(!"RES\t4, C");} break;
-         case 0xA2: {assert(!"RES\t4, D");} break;
-         case 0xA3: {assert(!"RES\t4, E");} break;
-         case 0xA4: {assert(!"RES\t4, H");} break;
-         case 0xA5: {assert(!"RES\t4, L");} break;
-         case 0xA6: {assert(!"RES\t4, (HL)");} break;
-         case 0xA7: {assert(!"RES\t4, A");} break;
+         case 0xA0: res(4, &register_b); break;
+         case 0xA1: res(4, &register_c); break;
+         case 0xA2: res(4, &register_d); break;
+         case 0xA3: res(4, &register_e); break;
+         case 0xA4: res(4, &register_h); break;
+         case 0xA5: res(4, &register_l); break;
+         case 0xA6: res(4, &stream[REGISTER_HL]); break;
+         case 0xA7: res(4, &register_a); break;
 
-         case 0xA8: {assert(!"RES\t5, B");} break;
-         case 0xA9: {assert(!"RES\t5, C");} break;
-         case 0xAA: {assert(!"RES\t5, D");} break;
-         case 0xAB: {assert(!"RES\t5, E");} break;
-         case 0xAC: {assert(!"RES\t5, H");} break;
-         case 0xAD: {assert(!"RES\t5, L");} break;
-         case 0xAE: {assert(!"RES\t5, (HL)");} break;
-         case 0xAF: {assert(!"RES\t5, A");} break;
+         case 0xA8: res(5, &register_b); break;
+         case 0xA9: res(5, &register_c); break;
+         case 0xAA: res(5, &register_d); break;
+         case 0xAB: res(5, &register_e); break;
+         case 0xAC: res(5, &register_h); break;
+         case 0xAD: res(5, &register_l); break;
+         case 0xAE: res(5, &stream[REGISTER_HL]); break;
+         case 0xAF: res(5, &register_a); break;
 
-         case 0xB0: {assert(!"RES\t6, B");} break;
-         case 0xB1: {assert(!"RES\t6, C");} break;
-         case 0xB2: {assert(!"RES\t6, D");} break;
-         case 0xB3: {assert(!"RES\t6, E");} break;
-         case 0xB4: {assert(!"RES\t6, H");} break;
-         case 0xB5: {assert(!"RES\t6, L");} break;
-         case 0xB6: {assert(!"RES\t6, (HL)");} break;
-         case 0xB7: {assert(!"RES\t6, A");} break;
+         case 0xB0: res(6, &register_b); break;
+         case 0xB1: res(6, &register_c); break;
+         case 0xB2: res(6, &register_d); break;
+         case 0xB3: res(6, &register_e); break;
+         case 0xB4: res(6, &register_h); break;
+         case 0xB5: res(6, &register_l); break;
+         case 0xB6: res(6, &stream[REGISTER_HL]); break;
+         case 0xB7: res(6, &register_a); break;
 
-         case 0xB8: {assert(!"RES\t7, B");} break;
-         case 0xB9: {assert(!"RES\t7, C");} break;
-         case 0xBA: {assert(!"RES\t7, D");} break;
-         case 0xBB: {assert(!"RES\t7, E");} break;
-         case 0xBC: {assert(!"RES\t7, H");} break;
-         case 0xBD: {assert(!"RES\t7, L");} break;
-         case 0xBE: {assert(!"RES\t7, (HL)");} break;
-         case 0xBF: {assert(!"RES\t7, A");} break;
+         case 0xB8: res(7, &register_b); break;
+         case 0xB9: res(7, &register_c); break;
+         case 0xBA: res(7, &register_d); break;
+         case 0xBB: res(7, &register_e); break;
+         case 0xBC: res(7, &register_h); break;
+         case 0xBD: res(7, &register_l); break;
+         case 0xBE: res(7, &stream[REGISTER_HL]); break;
+         case 0xBF: res(7, &register_a); break;
 
-         case 0xC0: {assert(!"SET\t0, B");} break;
-         case 0xC1: {assert(!"SET\t0, C");} break;
-         case 0xC2: {assert(!"SET\t0, D");} break;
-         case 0xC3: {assert(!"SET\t0, E");} break;
-         case 0xC4: {assert(!"SET\t0, H");} break;
-         case 0xC5: {assert(!"SET\t0, L");} break;
-         case 0xC6: {assert(!"SET\t0, (HL)");} break;
-         case 0xC7: {assert(!"SET\t0, A");} break;
+         case 0xC0: set(0, &register_b); break;
+         case 0xC1: set(0, &register_c); break;
+         case 0xC2: set(0, &register_d); break;
+         case 0xC3: set(0, &register_e); break;
+         case 0xC4: set(0, &register_h); break;
+         case 0xC5: set(0, &register_l); break;
+         case 0xC6: set(0, &stream[REGISTER_HL]); break;
+         case 0xC7: set(0, &register_a); break;
 
-         case 0xC8: {assert(!"SET\t1, B");} break;
-         case 0xC9: {assert(!"SET\t1, C");} break;
-         case 0xCA: {assert(!"SET\t1, D");} break;
-         case 0xCB: {assert(!"SET\t1, E");} break;
-         case 0xCC: {assert(!"SET\t1, H");} break;
-         case 0xCD: {assert(!"SET\t1, L");} break;
-         case 0xCE: {assert(!"SET\t1, (HL)");} break;
-         case 0xCF: {assert(!"SET\t1, A");} break;
+         case 0xC8: set(1, &register_b); break;
+         case 0xC9: set(1, &register_c); break;
+         case 0xCA: set(1, &register_d); break;
+         case 0xCB: set(1, &register_e); break;
+         case 0xCC: set(1, &register_h); break;
+         case 0xCD: set(1, &register_l); break;
+         case 0xCE: set(1, &stream[REGISTER_HL]); break;
+         case 0xCF: set(1, &register_a); break;
 
-         case 0xD0: {assert(!"SET\t2, B");} break;
-         case 0xD1: {assert(!"SET\t2, C");} break;
-         case 0xD2: {assert(!"SET\t2, D");} break;
-         case 0xD3: {assert(!"SET\t2, E");} break;
-         case 0xD4: {assert(!"SET\t2, H");} break;
-         case 0xD5: {assert(!"SET\t2, L");} break;
-         case 0xD6: {assert(!"SET\t2, (HL)");} break;
-         case 0xD7: {assert(!"SET\t2, A");} break;
+         case 0xD0: set(2, &register_b); break;
+         case 0xD1: set(2, &register_c); break;
+         case 0xD2: set(2, &register_d); break;
+         case 0xD3: set(2, &register_e); break;
+         case 0xD4: set(2, &register_h); break;
+         case 0xD5: set(2, &register_l); break;
+         case 0xD6: set(2, &stream[REGISTER_HL]); break;
+         case 0xD7: set(2, &register_a); break;
 
-         case 0xD8: {assert(!"SET\t3, B");} break;
-         case 0xD9: {assert(!"SET\t3, C");} break;
-         case 0xDA: {assert(!"SET\t3, D");} break;
-         case 0xDB: {assert(!"SET\t3, E");} break;
-         case 0xDC: {assert(!"SET\t3, H");} break;
-         case 0xDD: {assert(!"SET\t3, L");} break;
-         case 0xDE: {assert(!"SET\t3, (HL)");} break;
-         case 0xDF: {assert(!"SET\t3, A");} break;
+         case 0xD8: set(3, &register_b); break;
+         case 0xD9: set(3, &register_c); break;
+         case 0xDA: set(3, &register_d); break;
+         case 0xDB: set(3, &register_e); break;
+         case 0xDC: set(3, &register_h); break;
+         case 0xDD: set(3, &register_l); break;
+         case 0xDE: set(3, &stream[REGISTER_HL]); break;
+         case 0xDF: set(3, &register_a); break;
 
-         case 0xE0: {assert(!"SET\t4, B");} break;
-         case 0xE1: {assert(!"SET\t4, C");} break;
-         case 0xE2: {assert(!"SET\t4, D");} break;
-         case 0xE3: {assert(!"SET\t4, E");} break;
-         case 0xE4: {assert(!"SET\t4, H");} break;
-         case 0xE5: {assert(!"SET\t4, L");} break;
-         case 0xE6: {assert(!"SET\t4, (HL)");} break;
-         case 0xE7: {assert(!"SET\t4, A");} break;
+         case 0xE0: set(4, &register_b); break;
+         case 0xE1: set(4, &register_c); break;
+         case 0xE2: set(4, &register_d); break;
+         case 0xE3: set(4, &register_e); break;
+         case 0xE4: set(4, &register_h); break;
+         case 0xE5: set(4, &register_l); break;
+         case 0xE6: set(4, &stream[REGISTER_HL]); break;
+         case 0xE7: set(4, &register_a); break;
 
-         case 0xE8: {assert(!"SET\t5, B");} break;
-         case 0xE9: {assert(!"SET\t5, C");} break;
-         case 0xEA: {assert(!"SET\t5, D");} break;
-         case 0xEB: {assert(!"SET\t5, E");} break;
-         case 0xEC: {assert(!"SET\t5, H");} break;
-         case 0xED: {assert(!"SET\t5, L");} break;
-         case 0xEE: {assert(!"SET\t5, (HL)");} break;
-         case 0xEF: {assert(!"SET\t5, A");} break;
+         case 0xE8: set(5, &register_b); break;
+         case 0xE9: set(5, &register_c); break;
+         case 0xEA: set(5, &register_d); break;
+         case 0xEB: set(5, &register_e); break;
+         case 0xEC: set(5, &register_h); break;
+         case 0xED: set(5, &register_l); break;
+         case 0xEE: set(5, &stream[REGISTER_HL]); break;
+         case 0xEF: set(5, &register_a); break;
 
-         case 0xF0: {assert(!"SET\t6, B");} break;
-         case 0xF1: {assert(!"SET\t6, C");} break;
-         case 0xF2: {assert(!"SET\t6, D");} break;
-         case 0xF3: {assert(!"SET\t6, E");} break;
-         case 0xF4: {assert(!"SET\t6, H");} break;
-         case 0xF5: {assert(!"SET\t6, L");} break;
-         case 0xF6: {assert(!"SET\t6, (HL)");} break;
-         case 0xF7: {assert(!"SET\t6, A");} break;
+         case 0xF0: set(6, &register_b); break;
+         case 0xF1: set(6, &register_c); break;
+         case 0xF2: set(6, &register_d); break;
+         case 0xF3: set(6, &register_e); break;
+         case 0xF4: set(6, &register_h); break;
+         case 0xF5: set(6, &register_l); break;
+         case 0xF6: set(6, &stream[REGISTER_HL]); break;
+         case 0xF7: set(6, &register_a); break;
 
-         case 0xF8: {assert(!"SET\t7, B");} break;
-         case 0xF9: {assert(!"SET\t7, C");} break;
-         case 0xFA: {assert(!"SET\t7, D");} break;
-         case 0xFB: {assert(!"SET\t7, E");} break;
-         case 0xFC: {assert(!"SET\t7, H");} break;
-         case 0xFD: {assert(!"SET\t7, L");} break;
-         case 0xFE: {assert(!"SET\t7, (HL)");} break;
-         case 0xFF: {assert(!"SET\t7, A");} break;
+         case 0xF8: set(7, &register_b); break;
+         case 0xF9: set(7, &register_c); break;
+         case 0xFA: set(7, &register_d); break;
+         case 0xFB: set(7, &register_e); break;
+         case 0xFC: set(7, &register_h); break;
+         case 0xFD: set(7, &register_l); break;
+         case 0xFE: set(7, &stream[REGISTER_HL]); break;
+         case 0xFF: set(7, &register_a); break;
 
          default:
          {
@@ -1705,8 +1920,6 @@ fetch_and_execute(unsigned char *stream)
    {
       switch(opcode)
       {
-         case 0x00: {} break; // NOP
-
          // NOTE(law): 8-bit load instructions
          case 0x40: {register_b = register_b;} break;
          case 0x41: {register_b = register_c;} break;
@@ -1715,7 +1928,7 @@ fetch_and_execute(unsigned char *stream)
          case 0x44: {register_b = register_h;} break;
          case 0x45: {register_b = register_l;} break;
          case 0x46: {register_b = stream[REGISTER_HL];} break;
-         case 0x47: {register_b =  register_a;} break;
+         case 0x47: {register_b = register_a;} break;
 
          case 0x48: {register_c = register_b;} break;
          case 0x49: {register_c = register_c;} break;
@@ -1724,7 +1937,7 @@ fetch_and_execute(unsigned char *stream)
          case 0x4C: {register_c = register_h;} break;
          case 0x4D: {register_c = register_l;} break;
          case 0x4E: {register_c = stream[REGISTER_HL];} break;
-         case 0x4F: {register_c =  register_a;} break;
+         case 0x4F: {register_c = register_a;} break;
 
          case 0x50: {register_d = register_b;} break;
          case 0x51: {register_d = register_c;} break;
@@ -1733,7 +1946,7 @@ fetch_and_execute(unsigned char *stream)
          case 0x54: {register_d = register_h;} break;
          case 0x55: {register_d = register_l;} break;
          case 0x56: {register_d = stream[REGISTER_HL];} break;
-         case 0x57: {register_d =  register_a;} break;
+         case 0x57: {register_d = register_a;} break;
 
          case 0x58: {register_e = register_b;} break;
          case 0x59: {register_e = register_c;} break;
@@ -1742,7 +1955,7 @@ fetch_and_execute(unsigned char *stream)
          case 0x5C: {register_e = register_h;} break;
          case 0x5D: {register_e = register_l;} break;
          case 0x5E: {register_e = stream[REGISTER_HL];} break;
-         case 0x5F: {register_e =  register_a;} break;
+         case 0x5F: {register_e = register_a;} break;
 
          case 0x60: {register_h = register_b;} break;
          case 0x61: {register_h = register_c;} break;
@@ -1751,7 +1964,7 @@ fetch_and_execute(unsigned char *stream)
          case 0x64: {register_h = register_h;} break;
          case 0x65: {register_h = register_l;} break;
          case 0x66: {register_h = stream[REGISTER_HL];} break;
-         case 0x67: {register_h =  register_a;} break;
+         case 0x67: {register_h = register_a;} break;
 
          case 0x68: {register_l = register_b;} break;
          case 0x69: {register_l = register_c;} break;
@@ -1760,7 +1973,7 @@ fetch_and_execute(unsigned char *stream)
          case 0x6C: {register_l = register_h;} break;
          case 0x6D: {register_l = register_l;} break;
          case 0x6E: {register_l = stream[REGISTER_HL];} break;
-         case 0x6F: {register_l =  register_a;} break;
+         case 0x6F: {register_l = register_a;} break;
 
          case 0x70: {stream[REGISTER_HL] = register_b;} break;
          case 0x71: {stream[REGISTER_HL] = register_c;} break;
@@ -1777,7 +1990,7 @@ fetch_and_execute(unsigned char *stream)
          case 0x7C: {register_a = register_h;} break;
          case 0x7D: {register_a = register_l;} break;
          case 0x7E: {register_a = stream[REGISTER_HL];} break;
-         case 0x7F: {register_a =  register_a;} break;
+         case 0x7F: {register_a = register_a;} break;
 
          case 0x06: {register_b = stream[register_pc++];} break; // LD B, n
          case 0x0E: {register_c = stream[register_pc++];} break; // LD C, n
@@ -1785,7 +1998,7 @@ fetch_and_execute(unsigned char *stream)
          case 0x16: {register_d = stream[register_pc++];} break; // LD D, n
          case 0x26: {register_h = stream[register_pc++];} break; // LD H, n
          case 0x2E: {register_l = stream[register_pc++];} break; // LD L, n
-         case 0x36: {stream[REGISTER_HL] = stream[register_pc++];} break; // LD (HL), (nn)
+         case 0x36: {stream[REGISTER_HL] = stream[register_pc++];} break; // LD (HL), n
          case 0x3E: {register_a = stream[register_pc++];} break; // LD A, n
 
          case 0x0A: {register_a = stream[REGISTER_BC];} break; // LD A, (BC)
@@ -1906,6 +2119,15 @@ fetch_and_execute(unsigned char *stream)
 
 
          // NOTE(law): 16-bit load instructions
+         case 0x08: // LD (nn), SP
+         {
+            unsigned char address_low  = stream[register_pc++];
+            unsigned char address_high = stream[register_pc++];
+            unsigned short address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
+
+            stream[address] = register_sp;
+         } break;
+
          case 0x01: // LD BC, nn
          {
             register_c = stream[register_pc++];
@@ -1932,6 +2154,12 @@ fetch_and_execute(unsigned char *stream)
 
             register_sp = value;
          } break;
+
+         // NOTE(law): Rotate and Shift instructions
+         case 0x07: rlca(); break;
+         case 0x17: rla(); break;
+         case 0x0F: rrca(); break;
+         case 0x1F: rra(); break;
 
 
          // NOTE(law): 8-bit Arithmetic/Logic instructions
@@ -1984,25 +2212,7 @@ fetch_and_execute(unsigned char *stream)
             // TODO(law): Look up how decimal adjustment actually works and
             // implement it!
 
-            if(FLAG_Z)
-            {
-               register_f &= ~FLAG_Z_MASK;
-            }
-            else
-            {
-               register_f |= FLAG_Z_MASK;
-            }
-
-            register_f &= ~FLAG_H_MASK;
-
-            if(FLAG_C)
-            {
-               register_f &= ~FLAG_C_MASK;
-            }
-            else
-            {
-               register_f |= FLAG_C_MASK;
-            }
+            assert(!"DAA");
          } break;
 
          case 0x2F: // CPL
@@ -2157,6 +2367,7 @@ fetch_and_execute(unsigned char *stream)
             register_f |= FLAG_C_MASK;
          } break;
 
+         case 0x00: {} break; // NOP
          case 0x76: {halt = true;} break; // HALT
          case 0x10: {stop = true; register_pc++;} break; // STOP
          case 0xF3: {ime = false;} break;
@@ -2164,25 +2375,25 @@ fetch_and_execute(unsigned char *stream)
 
 
          // NOTE(law): Jump instructions
+         case 0xC3: jp(stream, true); // JP nn
+         case 0xE9: {register_pc = REGISTER_HL;} break; // JP HL
+
+         case 0xC2: jp(stream, !FLAG_Z); break; // JP NZ, nn
+         case 0xCA: jp(stream, FLAG_Z); break;  // JP Z, nn
+         case 0xD2: jp(stream, !FLAG_C); break; // JP NC, nn
+         case 0xDA: jp(stream, FLAG_C); break;  // JP C, nn
+
          case 0x18: jr(stream, true); break;    // JR PC + n
          case 0x20: jr(stream, !FLAG_Z); break; // JR NZ, PC + n
          case 0x28: jr(stream, FLAG_Z); break;  // JR Z, PC + n
          case 0x30: jr(stream, !FLAG_C); break; // JR NC, PC + n
          case 0x38: jr(stream, FLAG_C); break;  // JR C, PC + n
 
-         case 0xC2: jp(stream, !FLAG_Z); break; // JP NZ, nn
-         case 0xCA: jp(stream, FLAG_Z); break;  // JP Z, nn
-         case 0xD2: jp(stream, !FLAG_C); break; // JP NC, nn
-         case 0xDA: jp(stream, FLAG_C); break;  // JP C, nn
-         case 0xC3: jp(stream, true); // JP nn
-
          case 0xC4: call(stream, !FLAG_Z); break; // CALL NZ, nn
          case 0xCC: call(stream, FLAG_Z); break;  // CALL Z, nn
          case 0xCD: call(stream, true); break;    // CALL nn
          case 0xD4: call(stream, !FLAG_C); break; // CALL NC, nn
          case 0xDC: call(stream, FLAG_C); break;  // CALL C, nn
-
-         case 0xE9: {register_pc = REGISTER_HL;} break; // JP HL
 
          case 0xC0: ret(stream, !FLAG_Z); break; // RET NZ
          case 0xC8: ret(stream, FLAG_Z); break;  // RET Z
