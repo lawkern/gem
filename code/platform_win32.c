@@ -3,6 +3,7 @@
 /* /////////////////////////////////////////////////////////////////////////// */
 
 #include <windows.h>
+#include <commctrl.h>
 #include <stdarg.h>
 
 #include "gem.c"
@@ -10,6 +11,13 @@
 static bool win32_global_is_running = true;
 static Platform_File win32_global_rom;
 static unsigned char *win32_global_memory_map;
+
+enum
+{
+   WIN32_MENU_FILE_OPEN = 9001,
+   WIN32_MENU_FILE_EXIT,
+   WIN32_STATUS_BAR,
+};
 
 static
 PLATFORM_FREE_FILE(free_file)
@@ -28,7 +36,7 @@ PLATFORM_LOAD_FILE(load_file)
    HANDLE find_file = FindFirstFileA(file_path, &file_data);
    if(find_file == INVALID_HANDLE_VALUE)
    {
-      fprintf(stderr, "ERROR: Failed to find file \"%s\".\n", file_path);
+      log("ERROR: Failed to find file \"%s\".\n", file_path);
       return(result);
    }
    FindClose(find_file);
@@ -37,7 +45,7 @@ PLATFORM_LOAD_FILE(load_file)
    result.memory = malloc(size);
    if(!result.memory)
    {
-      fprintf(stderr, "ERROR: Failed to allocate memory for file \"%s\".\n", file_path);
+      log("ERROR: Failed to allocate memory for file \"%s\".\n", file_path);
       return(result);
    }
 
@@ -49,7 +57,7 @@ PLATFORM_LOAD_FILE(load_file)
    }
    else
    {
-      fprintf(stderr, "Failed to read file \"%s.\"\n", file_path);
+      log("ERROR: Failed to read file \"%s.\"\n", file_path);
       free_file(&result);
    }
    CloseHandle(file);
@@ -73,7 +81,7 @@ PLATFORM_LOG(log)
 }
 
 static void
-win32_load_rom(char *rom_path)
+win32_load_rom(HWND window, char *rom_path)
 {
    log("Loading ROM at \"%s\"...\n", rom_path);
    Platform_File rom = load_file(rom_path);
@@ -92,10 +100,17 @@ win32_load_rom(char *rom_path)
       return;
    }
 
+   if(rom.size < (0x100 + sizeof(Cartridge_Header)))
+   {
+      log("ERROR: The loaded ROM was too small to contain a full header.\n", rom_path);
+      free_file(&rom);
+      return;
+   }
+
    Cartridge_Header *header = get_cartridge_header(rom.memory);
 
    // TODO(law): Implement Memory Bank Controllers.
-   if(header->ram_size != 0);
+   if(header->ram_size != 0)
    {
       log("ERROR: The Memory Bank Controller used by the loaded ROM is not supported.\n");
       free_file(&rom);
@@ -107,16 +122,25 @@ win32_load_rom(char *rom_path)
       free_file(&win32_global_rom);
    }
 
+   if(win32_global_memory_map)
+   {
+      free(win32_global_memory_map);
+   }
+
    // TODO(law): Load boot ROM and start read from address 0x0000;
    register_pc = 0x100;
 
    // TODO(law): Additional memory size will be needed to support multiple Memory
    // Banks.
-   unsigned char *memory_map = malloc(0xFFFF);
-   memcpy(memory_map, rom.memory, rom.size);
+   size_t memory_map_size = 0xFFFF;
+   unsigned char *memory_map = malloc(memory_map_size);
+   memcpy(memory_map, rom.memory, memory_map_size);
 
    win32_global_rom = rom;
    win32_global_memory_map = memory_map;
+
+   HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
+   SendMessage(status_bar, WM_SETTEXT, 0, (LPARAM)rom_path);
 }
 
 static void
@@ -136,15 +160,9 @@ win32_open_file_dialog(HWND window)
 
    if(GetOpenFileName(&open_file_name))
    {
-      win32_load_rom(file_name);
+      win32_load_rom(window, file_name);
    }
 }
-
-enum
-{
-   WIN32_MENU_FILE_OPEN = 9001,
-   WIN32_MENU_FILE_EXIT,
-};
 
 LRESULT
 win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
@@ -164,7 +182,17 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          AppendMenu(menu, MF_STRING|MF_POPUP, (UINT_PTR)file_menu, "&File");
 
          SetMenu(window, menu);
+
+         // NOTE(law): Create window status bar.
+         CreateWindowA(STATUSCLASSNAME, 0, WS_CHILD|WS_VISIBLE, 0, 0, 0, 0,
+                       window, (HMENU)WIN32_STATUS_BAR, GetModuleHandle(0), 0);
       } break;
+
+      case WM_SIZE:
+      {
+         HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
+         SendMessage(status_bar, WM_SIZE, 0, 0);
+      }
 
       case WM_COMMAND:
       {
@@ -271,6 +299,22 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          }
       } break;
 
+      case WM_PAINT:
+      {
+         PAINTSTRUCT paint;
+         HDC device_context = BeginPaint(window, &paint);
+         {
+            RECT client_rect;
+            GetClientRect(window, &client_rect);
+
+            int width = client_rect.right - client_rect.left;
+            int height = client_rect.bottom - client_rect.top;
+
+            PatBlt(device_context, 0, 0, width, height, WHITENESS);
+         }
+         ReleaseDC(window, device_context);
+      } break;
+
       default:
       {
          result = DefWindowProc(window, message, wparam, lparam);
@@ -283,6 +327,8 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 int
 WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int show_command)
 {
+   InitCommonControls();
+
    WNDCLASSA window_class = {0};
    window_class.style = CS_HREDRAW|CS_VREDRAW;
    window_class.lpfnWndProc = win32_window_callback;
@@ -302,7 +348,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    RECT window_rect = {0};
    window_rect.bottom = 144 << 1;
    window_rect.right  = 160 << 1;
-   AdjustWindowRect(&window_rect, window_style, false);
+   AdjustWindowRect(&window_rect, window_style, true);
 
    unsigned int window_width  = window_rect.right - window_rect.left;
    unsigned int window_height = window_rect.bottom - window_rect.top;
@@ -330,7 +376,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
    // NOTE(law): Attempt to load a ROM in case a path to one was provided as the
    // command line argument.
-   win32_load_rom(command_line);
+   win32_load_rom(window, command_line);
 
    win32_global_is_running = true;
    while(win32_global_is_running)
