@@ -205,6 +205,19 @@ win32_toggle_fullscreen(HWND window)
    }
 }
 
+static unsigned int
+win32_get_status_height(HWND window)
+{
+   // TODO(law): Determine if this query is too slow to process every frame.
+   HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
+
+   RECT status_rect = {0};
+   GetWindowRect(status_bar, &status_rect);
+
+   unsigned int result = status_rect.bottom - status_rect.top;
+   return(result);
+}
+
 static void
 win32_set_resolution_scale(HWND window, unsigned int scale)
 {
@@ -218,7 +231,53 @@ win32_set_resolution_scale(HWND window, unsigned int scale)
    unsigned int window_width  = window_rect.right - window_rect.left;
    unsigned int window_height = window_rect.bottom - window_rect.top;
 
+   unsigned int status_height = win32_get_status_height(window);
+   window_height += status_height;
+
    SetWindowPos(window, 0, 0, 0, window_width, window_height, SWP_NOMOVE);
+}
+
+static void
+win32_display_bitmap(HWND window, HDC device_context)
+{
+   RECT client_rect;
+   GetClientRect(window, &client_rect);
+
+   int client_width = client_rect.right - client_rect.left;
+   int client_height = client_rect.bottom - client_rect.top;
+
+   unsigned int status_height = win32_get_status_height(window);
+   client_height -= status_height;
+
+   float client_aspect_ratio = (float)client_width / (float)client_height;
+   float target_aspect_ratio = (float)GEM_BASE_RESOLUTION_WIDTH / (float)GEM_BASE_RESOLUTION_HEIGHT;
+
+   PatBlt(device_context, 0, 0, client_width, client_height, WHITENESS);
+
+   if(client_aspect_ratio > target_aspect_ratio)
+   {
+      // NOTE(law): The window is too wide, fill in the left and right sides
+      // with black gutters.
+
+      int target_width = (int)(target_aspect_ratio * (float)client_height);
+      int target_height = client_height;
+      int gutter_width = (client_width - target_width) / 2;
+
+      PatBlt(device_context, 0, 0, gutter_width, target_height, BLACKNESS);
+      PatBlt(device_context, client_width - gutter_width, 0, gutter_width, target_height, BLACKNESS);
+   }
+   else if(client_aspect_ratio < target_aspect_ratio)
+   {
+      // NOTE(law): The window is too tall, fill in the top and bottom with
+      // black gutters.
+
+      int target_width = client_width;
+      int target_height = (int)((1.0f / target_aspect_ratio) * (float)client_width);
+      int gutter_height = (client_height - target_height) / 2;
+
+      PatBlt(device_context, 0, 0, target_width, gutter_height, BLACKNESS);
+      PatBlt(device_context, 0, client_height - gutter_height, target_width, gutter_height, BLACKNESS);
+   }
 }
 
 LRESULT
@@ -414,15 +473,9 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
       {
          PAINTSTRUCT paint;
          HDC device_context = BeginPaint(window, &paint);
-         {
-            RECT client_rect;
-            GetClientRect(window, &client_rect);
 
-            int width = client_rect.right - client_rect.left;
-            int height = client_rect.bottom - client_rect.top;
+         win32_display_bitmap(window, device_context);
 
-            PatBlt(device_context, 0, 0, width, height, WHITENESS);
-         }
          ReleaseDC(window, device_context);
       } break;
 
@@ -454,23 +507,13 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       return(1);
    }
 
-   DWORD window_style = WS_OVERLAPPEDWINDOW;
-
-   RECT window_rect = {0};
-   window_rect.bottom = GEM_BASE_RESOLUTION_HEIGHT << 1;
-   window_rect.right  = GEM_BASE_RESOLUTION_WIDTH  << 1;
-   AdjustWindowRect(&window_rect, window_style, true);
-
-   unsigned int window_width  = window_rect.right - window_rect.left;
-   unsigned int window_height = window_rect.bottom - window_rect.top;
-
    HWND window = CreateWindowA(window_class.lpszClassName,
                                "Game Boy Emulator (GEM)",
-                               window_style,
+                               WS_OVERLAPPEDWINDOW,
                                CW_USEDEFAULT,
                                CW_USEDEFAULT,
-                               window_width,
-                               window_height,
+                               CW_USEDEFAULT,
+                               CW_USEDEFAULT,
                                0,
                                0,
                                instance,
@@ -481,6 +524,11 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       log("ERROR: Failed to create a window.\n");
       return(1);
    }
+
+   // NOTE(law): Set the window size after window creation (but before showing
+   // the window) so the status bar height can be accounted for. Otherwise the
+   // status bar will occlude some of the client area, unlike the menu bar.
+   win32_set_resolution_scale(window, 1);
 
    ShowWindow(window, show_command);
    UpdateWindow(window);
