@@ -7,6 +7,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define GEM_BASE_RESOLUTION_WIDTH 160
+#define GEM_BASE_RESOLUTION_HEIGHT 144
+
 typedef struct
 {
    size_t size;

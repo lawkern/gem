@@ -20,6 +20,10 @@ enum
 {
    WIN32_MENU_FILE_OPEN = 9001,
    WIN32_MENU_FILE_EXIT,
+   WIN32_MENU_VIEW_RESOLUTION_1X,
+   WIN32_MENU_VIEW_RESOLUTION_2X,
+   WIN32_MENU_VIEW_RESOLUTION_4X,
+   WIN32_MENU_VIEW_RESOLUTION_8X,
    WIN32_MENU_VIEW_FULLSCREEN,
    WIN32_STATUS_BAR,
 };
@@ -201,6 +205,22 @@ win32_toggle_fullscreen(HWND window)
    }
 }
 
+static void
+win32_set_resolution_scale(HWND window, unsigned int scale)
+{
+   DWORD window_style = WS_OVERLAPPEDWINDOW;
+
+   RECT window_rect = {0};
+   window_rect.bottom = GEM_BASE_RESOLUTION_HEIGHT << scale;
+   window_rect.right  = GEM_BASE_RESOLUTION_WIDTH  << scale;
+   AdjustWindowRect(&window_rect, window_style, true);
+
+   unsigned int window_width  = window_rect.right - window_rect.left;
+   unsigned int window_height = window_rect.bottom - window_rect.top;
+
+   SetWindowPos(window, 0, 0, 0, window_width, window_height, SWP_NOMOVE);
+}
+
 LRESULT
 win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
@@ -219,7 +239,12 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          AppendMenu(menu, MF_STRING|MF_POPUP, (UINT_PTR)file_menu, "&File");
 
          HMENU view_menu = CreatePopupMenu();
-         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_FULLSCREEN, "Toggle Fullscreen\tAlt-Enter");
+         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_1X, "&1x Resolution (160 x 144)\t1");
+         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_2X, "&2x Resolution (320 x 288)\t2");
+         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_4X, "&4x Resolution (640 x 576)\t4");
+         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_8X, "&8x Resolution (1280 x 1152)\t8");
+         AppendMenu(view_menu, MF_SEPARATOR, 0, 0);
+         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_FULLSCREEN, "Toggle &Fullscreen\tAlt-Enter");
          AppendMenu(menu, MF_STRING|MF_POPUP, (UINT_PTR)view_menu, "&View");
 
          SetMenu(window, menu);
@@ -248,6 +273,26 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
             {
                win32_global_is_running = false;
                PostQuitMessage(0);
+            } break;
+
+            case WIN32_MENU_VIEW_RESOLUTION_1X:
+            {
+               win32_set_resolution_scale(window, 0);
+            } break;
+
+            case WIN32_MENU_VIEW_RESOLUTION_2X:
+            {
+               win32_set_resolution_scale(window, 1);
+            } break;
+
+            case WIN32_MENU_VIEW_RESOLUTION_4X:
+            {
+               win32_set_resolution_scale(window, 2);
+            } break;
+
+            case WIN32_MENU_VIEW_RESOLUTION_8X:
+            {
+               win32_set_resolution_scale(window, 3);
             } break;
 
             case WIN32_MENU_VIEW_FULLSCREEN:
@@ -285,6 +330,22 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
             else if(alt_key_pressed && wparam == VK_RETURN)
             {
                win32_toggle_fullscreen(window);
+            }
+            else if(wparam == '1')
+            {
+               win32_set_resolution_scale(window, 0);
+            }
+            else if(wparam == '2')
+            {
+               win32_set_resolution_scale(window, 1);
+            }
+            else if(wparam == '4')
+            {
+               win32_set_resolution_scale(window, 2);
+            }
+            else if(wparam == '8')
+            {
+               win32_set_resolution_scale(window, 3);
             }
             else if(wparam == 'O')
             {
@@ -396,8 +457,8 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    DWORD window_style = WS_OVERLAPPEDWINDOW;
 
    RECT window_rect = {0};
-   window_rect.bottom = 144 << 1;
-   window_rect.right  = 160 << 1;
+   window_rect.bottom = GEM_BASE_RESOLUTION_HEIGHT << 1;
+   window_rect.right  = GEM_BASE_RESOLUTION_WIDTH  << 1;
    AdjustWindowRect(&window_rect, window_style, true);
 
    unsigned int window_width  = window_rect.right - window_rect.left;
