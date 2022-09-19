@@ -12,9 +12,9 @@
 static
 PLATFORM_FREE_FILE(free_file)
 {
-   free(file.memory);
-   file.size = 0;
-   file.memory = 0;
+   free(file->memory);
+   file->size = 0;
+   file->memory = 0;
 }
 
 static

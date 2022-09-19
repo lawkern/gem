@@ -14,9 +14,9 @@ static unsigned char *win32_global_memory_map;
 static
 PLATFORM_FREE_FILE(free_file)
 {
-   free(file.memory);
-   file.size = 0;
-   file.memory = 0;
+   free(file->memory);
+   file->size = 0;
+   file->memory = 0;
 }
 
 static
@@ -50,7 +50,7 @@ PLATFORM_LOAD_FILE(load_file)
    else
    {
       fprintf(stderr, "Failed to read file \"%s.\"\n", file_path);
-      free_file(result);
+      free_file(&result);
    }
    CloseHandle(file);
 
@@ -72,6 +72,80 @@ PLATFORM_LOG(log)
    OutputDebugStringA(message);
 }
 
+static void
+win32_load_rom(char *rom_path)
+{
+   log("Loading ROM at \"%s\"...\n", rom_path);
+   Platform_File rom = load_file(rom_path);
+
+   if(!rom.memory)
+   {
+      log("ERROR: The loaded ROM was not updated\n", rom_path);
+      return;
+   }
+
+   log("Validating cartridge header...\n");
+   if(!validate_cartridge_header(rom.memory, rom.size))
+   {
+      log("ERROR: The loaded ROM was not updated\n", rom_path);
+      free_file(&rom);
+      return;
+   }
+
+   Cartridge_Header *header = get_cartridge_header(rom.memory);
+
+   // TODO(law): Implement Memory Bank Controllers.
+   if(header->ram_size != 0);
+   {
+      log("ERROR: The Memory Bank Controller used by the loaded ROM is not supported.\n");
+      free_file(&rom);
+      return;
+   }
+
+   if(win32_global_rom.memory)
+   {
+      free_file(&win32_global_rom);
+   }
+
+   // TODO(law): Load boot ROM and start read from address 0x0000;
+   register_pc = 0x100;
+
+   // TODO(law): Additional memory size will be needed to support multiple Memory
+   // Banks.
+   unsigned char *memory_map = malloc(0xFFFF);
+   memcpy(memory_map, rom.memory, rom.size);
+
+   win32_global_rom = rom;
+   win32_global_memory_map = memory_map;
+}
+
+static void
+win32_open_file_dialog(HWND window)
+{
+   // TODO(law): We want something better than MAX_PATH here.
+   char file_name[MAX_PATH] = "";
+
+   OPENFILENAME open_file_name = {0};
+   open_file_name.lStructSize = sizeof(open_file_name);
+   open_file_name.hwndOwner = window;
+   open_file_name.lpstrFilter = "(*.gb)\0*.gb\0All Files (*.*)\0*.*\0";
+   open_file_name.lpstrFile = file_name;
+   open_file_name.nMaxFile = MAX_PATH;
+   open_file_name.Flags = OFN_EXPLORER|OFN_PATHMUSTEXIST;
+   open_file_name.lpstrDefExt = "gb";
+
+   if(GetOpenFileName(&open_file_name))
+   {
+      win32_load_rom(file_name);
+   }
+}
+
+enum
+{
+   WIN32_MENU_FILE_OPEN = 9001,
+   WIN32_MENU_FILE_EXIT,
+};
+
 LRESULT
 win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
@@ -79,6 +153,36 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 
    switch(message)
    {
+      case WM_CREATE:
+      {
+         HMENU menu = CreateMenu();
+
+         HMENU file_menu = CreatePopupMenu();
+         AppendMenu(file_menu, MF_STRING, WIN32_MENU_FILE_OPEN, "&Open ROM\tCtrl+O");
+         AppendMenu(file_menu, MF_SEPARATOR, 0, 0);
+         AppendMenu(file_menu, MF_STRING, WIN32_MENU_FILE_EXIT, "E&xit\tAlt+F4");
+         AppendMenu(menu, MF_STRING|MF_POPUP, (UINT_PTR)file_menu, "&File");
+
+         SetMenu(window, menu);
+      } break;
+
+      case WM_COMMAND:
+      {
+         switch(LOWORD(wparam))
+         {
+            case WIN32_MENU_FILE_OPEN:
+            {
+               win32_open_file_dialog(window);
+            } break;
+
+            case WIN32_MENU_FILE_EXIT:
+            {
+               win32_global_is_running = false;
+               PostQuitMessage(0);
+            } break;
+         }
+      } break;
+
       case WM_CLOSE:
       {
          DestroyWindow(window);
@@ -100,9 +204,19 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 
          if(!key_previously_down)
          {
-            if(wparam == VK_ESCAPE || (alt_key_pressed && wparam == VK_F4))
+            if(alt_key_pressed && wparam == VK_F4)
             {
                win32_global_is_running = false;
+            }
+            else if(wparam == 'O')
+            {
+               SHORT ctrl_state = GetKeyState(VK_CONTROL);
+               bool ctrl_key_pressed = (ctrl_state & 0x8000);
+
+               if(ctrl_key_pressed)
+               {
+                  win32_open_file_dialog(window);
+               }
             }
             else if(wparam == 'H')
             {
@@ -146,6 +260,14 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
                   log("No cartridge is currently loaded.\n");
                }
             }
+            else
+            {
+               result = DefWindowProc(window, message, wparam, lparam);
+            }
+         }
+         else
+         {
+            result = DefWindowProc(window, message, wparam, lparam);
          }
       } break;
 
@@ -161,34 +283,6 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 int
 WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int show_command)
 {
-   char *rom_path = command_line;
-   log("Loading ROM at \"%s\"...\n", rom_path);
-
-   Platform_File rom = load_file(rom_path);
-   if(rom.size == 0)
-   {
-      return(1);
-   }
-   win32_global_rom = rom;
-
-   log("Validating cartridge header...\n");
-   if(!validate_cartridge_header(rom.memory, rom.size))
-   {
-      return(1);
-   }
-
-   Cartridge_Header *header = get_cartridge_header(rom.memory);
-
-   // TODO(law): Implement Memory Bank Controllers.
-   assert(header->ram_size == 0);
-
-   register_pc = 0x100;
-   unsigned char *memory_map = malloc(0xFFFF);
-   memcpy(memory_map, rom.memory, rom.size);
-   win32_global_memory_map = memory_map;
-
-   /////////////////////////////////////////////////////////////////////////////
-
    WNDCLASSA window_class = {0};
    window_class.style = CS_HREDRAW|CS_VREDRAW;
    window_class.lpfnWndProc = win32_window_callback;
@@ -233,6 +327,10 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
    ShowWindow(window, show_command);
    UpdateWindow(window);
+
+   // NOTE(law): Attempt to load a ROM in case a path to one was provided as the
+   // command line argument.
+   win32_load_rom(command_line);
 
    win32_global_is_running = true;
    while(win32_global_is_running)

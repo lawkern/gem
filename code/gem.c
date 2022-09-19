@@ -13,7 +13,7 @@ typedef struct
    unsigned char *memory;
 } Platform_File;
 
-#define PLATFORM_FREE_FILE(name) void name(Platform_File file)
+#define PLATFORM_FREE_FILE(name) void name(Platform_File *file)
 #define PLATFORM_LOAD_FILE(name) Platform_File name(char *file_path)
 #define PLATFORM_LOG(name) void log(char *format, ...)
 
@@ -139,6 +139,8 @@ validate_cartridge_header(unsigned char *rom_memory, size_t rom_size)
       log("WARNING: Computed global checksum did not match value in header. ");
       log("(header: 0x%04x, computed: %0x04x)\n", header->global_checksum, global_checksum);
    }
+
+   log("SUCCESS: The cartridge header was validated.\n");
 
    return(true);
 }
