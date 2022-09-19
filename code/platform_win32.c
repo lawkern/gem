@@ -8,9 +8,12 @@
 
 #include "gem.c"
 
-static bool win32_global_is_running = true;
+static bool win32_global_is_running;
 static Platform_File win32_global_rom;
 static unsigned char *win32_global_memory_map;
+
+static HMENU win32_global_menu;
+static HWND win32_global_status_bar;
 static WINDOWPLACEMENT win32_global_previous_window_placement =
 {
    sizeof(win32_global_previous_window_placement)
@@ -196,45 +199,75 @@ win32_toggle_fullscreen(HWND window)
          SetWindowLong(window, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
          SetWindowPos(window, HWND_TOP, x, y, width, height, SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
       }
+
+      // NOTE(law): Hide menu bar and status bar in fullscreen mode.
+      SetMenu(window, 0);
+      ShowWindow(win32_global_status_bar, SW_HIDE);
    }
    else
    {
       SetWindowLong(window, GWL_STYLE, style|WS_OVERLAPPEDWINDOW);
       SetWindowPlacement(window, &win32_global_previous_window_placement);
       SetWindowPos(window, 0, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
+
+      // NOTE(law): Display menu bar and status bar again after exiting
+      // fullscreen mode.
+      SetMenu(window, win32_global_menu);
+      ShowWindow(win32_global_status_bar, SW_SHOW);
    }
+}
+
+static bool
+win32_is_fullscreen(HWND window)
+{
+   DWORD style = GetWindowLong(window, GWL_STYLE);
+
+   bool result = !(style & WS_OVERLAPPEDWINDOW);
+   return(result);
 }
 
 static unsigned int
 win32_get_status_height(HWND window)
 {
+   unsigned int result = 0;
+
    // TODO(law): Determine if this query is too slow to process every frame.
    HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
 
-   RECT status_rect = {0};
-   GetWindowRect(status_bar, &status_rect);
+   if(IsWindowVisible(status_bar))
+   {
+      RECT status_rect = {0};
+      GetWindowRect(status_bar, &status_rect);
 
-   unsigned int result = status_rect.bottom - status_rect.top;
+      result = status_rect.bottom - status_rect.top;
+   }
+
    return(result);
 }
 
 static void
 win32_set_resolution_scale(HWND window, unsigned int scale)
 {
-   DWORD window_style = WS_OVERLAPPEDWINDOW;
+   // NOTE(law): Prevent updating the resolution if the window is currently in
+   // fullscreen mode.
+   if(!win32_is_fullscreen(window))
+   {
+      DWORD window_style = WS_OVERLAPPEDWINDOW;
 
-   RECT window_rect = {0};
-   window_rect.bottom = GEM_BASE_RESOLUTION_HEIGHT << scale;
-   window_rect.right  = GEM_BASE_RESOLUTION_WIDTH  << scale;
-   AdjustWindowRect(&window_rect, window_style, true);
+      RECT window_rect = {0};
+      window_rect.bottom = GEM_BASE_RESOLUTION_HEIGHT << scale;
+      window_rect.right  = GEM_BASE_RESOLUTION_WIDTH  << scale;
+      AdjustWindowRect(&window_rect, window_style, true);
 
-   unsigned int window_width  = window_rect.right - window_rect.left;
-   unsigned int window_height = window_rect.bottom - window_rect.top;
+      unsigned int window_width  = window_rect.right - window_rect.left;
+      unsigned int window_height = window_rect.bottom - window_rect.top;
 
-   unsigned int status_height = win32_get_status_height(window);
-   window_height += status_height;
+      unsigned int status_height = win32_get_status_height(window);
+      window_height += status_height;
 
-   SetWindowPos(window, 0, 0, 0, window_width, window_height, SWP_NOMOVE);
+
+      SetWindowPos(window, 0, 0, 0, window_width, window_height, SWP_NOMOVE);
+   }
 }
 
 static void
@@ -289,13 +322,14 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
    {
       case WM_CREATE:
       {
-         HMENU menu = CreateMenu();
+         // NOTE(law): Create window menu bar.
+         win32_global_menu = CreateMenu();
 
          HMENU file_menu = CreatePopupMenu();
          AppendMenu(file_menu, MF_STRING, WIN32_MENU_FILE_OPEN, "&Open ROM\tCtrl+O");
          AppendMenu(file_menu, MF_SEPARATOR, 0, 0);
          AppendMenu(file_menu, MF_STRING, WIN32_MENU_FILE_EXIT, "E&xit\tAlt+F4");
-         AppendMenu(menu, MF_STRING|MF_POPUP, (UINT_PTR)file_menu, "&File");
+         AppendMenu(win32_global_menu, MF_STRING|MF_POPUP, (UINT_PTR)file_menu, "&File");
 
          HMENU view_menu = CreatePopupMenu();
          AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_1X, "&1x Resolution (160 x 144)\t1");
@@ -304,13 +338,13 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_8X, "&8x Resolution (1280 x 1152)\t8");
          AppendMenu(view_menu, MF_SEPARATOR, 0, 0);
          AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_FULLSCREEN, "Toggle &Fullscreen\tAlt-Enter");
-         AppendMenu(menu, MF_STRING|MF_POPUP, (UINT_PTR)view_menu, "&View");
+         AppendMenu(win32_global_menu, MF_STRING|MF_POPUP, (UINT_PTR)view_menu, "&View");
 
-         SetMenu(window, menu);
+         SetMenu(window, win32_global_menu);
 
          // NOTE(law): Create window status bar.
-         CreateWindowA(STATUSCLASSNAME, 0, WS_CHILD|WS_VISIBLE, 0, 0, 0, 0,
-                       window, (HMENU)WIN32_STATUS_BAR, GetModuleHandle(0), 0);
+         win32_global_status_bar = CreateWindowA(STATUSCLASSNAME, 0, WS_CHILD|WS_VISIBLE, 0, 0, 0, 0,
+                                                 window, (HMENU)WIN32_STATUS_BAR, GetModuleHandle(0), 0);
       } break;
 
       case WM_SIZE:
@@ -525,13 +559,15 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       return(1);
    }
 
-   // NOTE(law): Set the window size after window creation (but before showing
-   // the window) so the status bar height can be accounted for. Otherwise the
-   // status bar will occlude some of the client area, unlike the menu bar.
-   win32_set_resolution_scale(window, 1);
-
    ShowWindow(window, show_command);
    UpdateWindow(window);
+
+   // NOTE(law): Set the window size after creating and showing the window to
+   // ensure the status bar both exists and its parent window is visible (for
+   // the IsWindowVisible check during height calculation). This allows the
+   // status bar height to be properly accounted for and prevents it from
+   // occluding some of the client area we intend to use.
+   win32_set_resolution_scale(window, 1);
 
    // NOTE(law): Attempt to load a ROM in case a path to one was provided as the
    // command line argument.
