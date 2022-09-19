@@ -2411,7 +2411,7 @@ fetch_and_execute(unsigned char *stream)
 
 
          // NOTE(law): Jump instructions
-         case 0xC3: jp(stream, true); // JP nn
+         case 0xC3: jp(stream, true); break; // JP nn
          case 0xE9: {register_pc = REGISTER_HL;} break; // JP HL
 
          case 0xC2: jp(stream, !FLAG_Z); break; // JP NZ, nn

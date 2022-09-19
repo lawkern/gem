@@ -92,6 +92,60 @@ PLATFORM_LOG(log)
    OutputDebugStringA(message);
 }
 
+static unsigned char *
+win32_create_memory_map(unsigned char *cartridge_memory)
+{
+   // TODO(law): Load boot ROM and start read from address 0x0000;
+
+   unsigned char *result = 0;
+
+   Cartridge_Header *header = get_cartridge_header(cartridge_memory);
+
+   // TODO(law): Support the remaining cartridge types!
+   switch(header->cartridge_type)
+   {
+      case 0x00: // ROM ONLY
+      {
+         // NOTE(law): The cartridge contains 32KiB of ROM, which can be mapped
+         // directly into 0x0000 to 0x7FFF.
+
+         result = malloc(0x10000);
+         ZeroMemory(result, 0x10000);
+
+         memcpy(result, cartridge_memory, 0x8000);
+      } break;
+
+      default:
+      {
+         assert(!"UNHANDLED CARTRIDGE TYPE");
+      } break;
+   }
+
+   // TODO(law): These values are for the DMG version of the Game Boy. Support
+   // the other versions as well.
+   register_a = 0x01;
+   register_f = FLAG_Z_MASK;
+   if(header->header_checksum)
+   {
+      register_f |= FLAG_H_MASK;
+      register_f |= FLAG_C_MASK;
+   }
+   register_b = 0x00;
+   register_c = 0x13;
+   register_d = 0x00;
+   register_e = 0xD8;
+   register_h = 0x10;
+   register_l = 0x4D;
+   register_pc = 0x0100;
+   register_sp = 0xFFFE;
+
+   unsigned char *stream = result;
+   REGISTER_IE = 0x00;
+   REGISTER_IF = 0xE1;
+
+   return(result);
+}
+
 static void
 win32_load_rom(HWND window, char *rom_path)
 {
@@ -137,19 +191,11 @@ win32_load_rom(HWND window, char *rom_path)
    if(win32_global_memory_map)
    {
       free(win32_global_memory_map);
+      win32_global_memory_map = 0;
    }
 
-   // TODO(law): Load boot ROM and start read from address 0x0000;
-   register_pc = 0x100;
-
-   // TODO(law): Additional memory size will be needed to support multiple Memory
-   // Banks.
-   size_t memory_map_size = 0xFFFF;
-   unsigned char *memory_map = malloc(memory_map_size);
-   memcpy(memory_map, rom.memory, memory_map_size);
-
    win32_global_rom = rom;
-   win32_global_memory_map = memory_map;
+   win32_global_memory_map = win32_create_memory_map(rom.memory);
 
    HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
    SendMessage(status_bar, WM_SETTEXT, 0, (LPARAM)rom_path);
@@ -158,6 +204,7 @@ win32_load_rom(HWND window, char *rom_path)
 static void
 win32_open_file_dialog(HWND window)
 {
+
    // TODO(law): We want something better than MAX_PATH here.
    char file_name[MAX_PATH] = "";
 
@@ -581,6 +628,12 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       {
          TranslateMessage(&message);
          DispatchMessage(&message);
+      }
+
+      if(win32_global_memory_map)
+      {
+         handle_interrupts(win32_global_memory_map);
+         fetch_and_execute(win32_global_memory_map);
       }
    }
 
