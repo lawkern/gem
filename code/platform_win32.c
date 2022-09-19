@@ -11,11 +11,16 @@
 static bool win32_global_is_running = true;
 static Platform_File win32_global_rom;
 static unsigned char *win32_global_memory_map;
+static WINDOWPLACEMENT win32_global_previous_window_placement =
+{
+   sizeof(win32_global_previous_window_placement)
+};
 
 enum
 {
    WIN32_MENU_FILE_OPEN = 9001,
    WIN32_MENU_FILE_EXIT,
+   WIN32_MENU_VIEW_FULLSCREEN,
    WIN32_STATUS_BAR,
 };
 
@@ -164,6 +169,38 @@ win32_open_file_dialog(HWND window)
    }
 }
 
+static void
+win32_toggle_fullscreen(HWND window)
+{
+   // NOTE(law): Based on version by Raymond Chen:
+   // https://devblogs.microsoft.com/oldnewthing/20100412-00/?p=14353
+
+   // TODO(law): Check what this does with multiple monitors.
+   DWORD style = GetWindowLong(window, GWL_STYLE);
+   if(style & WS_OVERLAPPEDWINDOW)
+   {
+      MONITORINFO monitor_info = {sizeof(monitor_info)};
+
+      if (GetWindowPlacement(window, &win32_global_previous_window_placement) &&
+          GetMonitorInfo(MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY), &monitor_info))
+      {
+         int x = monitor_info.rcMonitor.left;
+         int y = monitor_info.rcMonitor.top;
+         int width = monitor_info.rcMonitor.right - monitor_info.rcMonitor.left;
+         int height = monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top;
+
+         SetWindowLong(window, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
+         SetWindowPos(window, HWND_TOP, x, y, width, height, SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
+      }
+   }
+   else
+   {
+      SetWindowLong(window, GWL_STYLE, style|WS_OVERLAPPEDWINDOW);
+      SetWindowPlacement(window, &win32_global_previous_window_placement);
+      SetWindowPos(window, 0, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
+   }
+}
+
 LRESULT
 win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
@@ -180,6 +217,10 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          AppendMenu(file_menu, MF_SEPARATOR, 0, 0);
          AppendMenu(file_menu, MF_STRING, WIN32_MENU_FILE_EXIT, "E&xit\tAlt+F4");
          AppendMenu(menu, MF_STRING|MF_POPUP, (UINT_PTR)file_menu, "&File");
+
+         HMENU view_menu = CreatePopupMenu();
+         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_FULLSCREEN, "Toggle Fullscreen\tAlt-Enter");
+         AppendMenu(menu, MF_STRING|MF_POPUP, (UINT_PTR)view_menu, "&View");
 
          SetMenu(window, menu);
 
@@ -208,6 +249,11 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
                win32_global_is_running = false;
                PostQuitMessage(0);
             } break;
+
+            case WIN32_MENU_VIEW_FULLSCREEN:
+            {
+               win32_toggle_fullscreen(window);
+            } break;
          }
       } break;
 
@@ -235,6 +281,10 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
             if(alt_key_pressed && wparam == VK_F4)
             {
                win32_global_is_running = false;
+            }
+            else if(alt_key_pressed && wparam == VK_RETURN)
+            {
+               win32_toggle_fullscreen(window);
             }
             else if(wparam == 'O')
             {
