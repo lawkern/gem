@@ -26,6 +26,26 @@ static PLATFORM_LOG(log);
 
 #define ARRAY_LENGTH(array) (sizeof(array) / sizeof((array)[0]))
 
+static unsigned char boot_rom[] =
+{
+   0x31, 0xFE, 0xFF, 0xAF, 0x21, 0xFF, 0x9F, 0x32, 0xCB, 0x7C, 0x20, 0xFB, 0x21, 0x26, 0xFF, 0x0E,
+   0x11, 0x3E, 0x80, 0x32, 0xE2, 0x0C, 0x3E, 0xF3, 0xE2, 0x32, 0x3E, 0x77, 0x77, 0x3E, 0xFC, 0xE0,
+   0x47, 0x11, 0x04, 0x01, 0x21, 0x10, 0x80, 0x1A, 0xCD, 0x95, 0x00, 0xCD, 0x96, 0x00, 0x13, 0x7B,
+   0xFE, 0x34, 0x20, 0xF3, 0x11, 0xD8, 0x00, 0x06, 0x08, 0x1A, 0x13, 0x22, 0x23, 0x05, 0x20, 0xF9,
+   0x3E, 0x19, 0xEA, 0x10, 0x99, 0x21, 0x2F, 0x99, 0x0E, 0x0C, 0x3D, 0x28, 0x08, 0x32, 0x0D, 0x20,
+   0xF9, 0x2E, 0x0F, 0x18, 0xF3, 0x67, 0x3E, 0x64, 0x57, 0xE0, 0x42, 0x3E, 0x91, 0xE0, 0x40, 0x04,
+   0x1E, 0x02, 0x0E, 0x0C, 0xF0, 0x44, 0xFE, 0x90, 0x20, 0xFA, 0x0D, 0x20, 0xF7, 0x1D, 0x20, 0xF2,
+   0x0E, 0x13, 0x24, 0x7C, 0x1E, 0x83, 0xFE, 0x62, 0x28, 0x06, 0x1E, 0xC1, 0xFE, 0x64, 0x20, 0x06,
+   0x7B, 0xE2, 0x0C, 0x3E, 0x87, 0xE2, 0xF0, 0x42, 0x90, 0xE0, 0x42, 0x15, 0x20, 0xD2, 0x05, 0x20,
+   0x4F, 0x16, 0x20, 0x18, 0xCB, 0x4F, 0x06, 0x04, 0xC5, 0xCB, 0x11, 0x17, 0xC1, 0xCB, 0x11, 0x17,
+   0x05, 0x20, 0xF5, 0x22, 0x23, 0x22, 0x23, 0xC9, 0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B,
+   0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D, 0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E,
+   0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99, 0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC,
+   0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E, 0x3C, 0x42, 0xB9, 0xA5, 0xB9, 0xA5, 0x42, 0x3C,
+   0x21, 0x04, 0x01, 0x11, 0xA8, 0x00, 0x1A, 0x13, 0xBE, 0x20, 0xFE, 0x23, 0x7D, 0xFE, 0x34, 0x20,
+   0xF5, 0x06, 0x19, 0x78, 0x86, 0x23, 0x05, 0x20, 0xFB, 0x86, 0x20, 0xFE, 0x3E, 0x01, 0xE0, 0x50,
+};
+
 static unsigned short
 endian_swap16(unsigned short value)
 {
@@ -1058,6 +1078,16 @@ static bool ime;
 #define REQUEST_SERIAL   ((REGISTER_IF >> INTERRUPT_SERIAL_BIT)   & 0x1)
 #define REQUEST_JOYPAD   ((REGISTER_IF >> INTERRUPT_JOYPAD_BIT)   & 0x1)
 
+#define JOYPAD_DOWN_START_BIT 3
+#define JOYPAD_UP_SELECT_BIT  2
+#define JOYPAD_LEFT_B_BIT     1
+#define JOYPAD_RIGHT_A_BIT    0
+
+#define JOYPAD_DOWN_START_MASK (1 << JOYPAD_DOWN_START_MASK)
+#define JOYPAD_UP_SELECT_MASK  (1 << JOYPAD_UP_SELECT_MASK
+#define JOYPAD_LEFT_B_MASK     (1 << JOYPAD_LEFT_B_MASK)
+#define JOYPAD_RIGHT_A_MASK    (1 << JOYPAD_RIGHT_A_MASK)
+
 static void
 add(unsigned char value)
 {
@@ -1068,62 +1098,42 @@ add(unsigned char value)
 
    register_a = (unsigned char)extended_sum;
 
-   // NOTE(law): Clear the flags to zero.
-   register_f = 0;
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
 
-   // NOTE(law): Set the Zero flag bit if the result of the computation produced
-   // a zero.
-   if(register_a == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
-
-   // NOTE(law): Always unset the Subtraction flag during an ADD operation (This
-   // is actually a no-op, since the flag is cleared up top).
+   // NOTE(law): Always reset the Subtraction flag.
    register_f &= ~FLAG_N_MASK;
 
-   // NOTE(law): Set the Half Carry flag if adding the low 4 bits of register A
-   // and the incoming value sets bit 5 of the resulting sum.
-   if((half_sum & 0x10) == 0x10)
-   {
-      register_f |= FLAG_H_MASK;
-   }
+   // NOTE(law): Set the Half Carry flag if a carry occurs from bit 3 to 4.
+   register_f = (register_f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
 
-   // NOTE(law): Set the Carry flag if adding the full 8 bits of register A and
-   // the incoming value would create a sum greater than the maximum byte value
-   // 0xFF (assuming the types used avoided an overflow).
-   if(extended_sum > 0xFF)
-   {
-      register_f |= FLAG_C_MASK;
-   }
+   // NOTE(law): Set the Half Carry flag if a carry occurs from bit 7.
+   register_f = (register_f & ~FLAG_C_MASK) | ((extended_sum > 0xFF) << FLAG_C_BIT);
 }
 
 static void
 adc(unsigned char value)
 {
+   // NOTE(law): Compute these values before updating register A for use in the
+   // flag calculations.
    unsigned short extended_sum = (unsigned short)register_a + (unsigned short)value + FLAG_C;
-   unsigned char half_sum = (register_a & 0xF) + ((value + FLAG_C) & 0xF);
+   unsigned char half_sum = (register_a & 0xF) + (value & 0xF) + FLAG_C;
 
    register_a = (unsigned char)extended_sum;
 
-   register_f = 0;
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
 
-   if(register_a == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
-
+   // NOTE(law): Always reset the Subtraction flag.
    register_f &= ~FLAG_N_MASK;
 
-   if((half_sum & 0x10) == 0x10)
-   {
-      register_f |= FLAG_H_MASK;
-   }
+   // NOTE(law): Set the Half Carry flag if a carry occurs from bit 3 to 4.
+   register_f = (register_f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
 
-   if(extended_sum > 0xFF)
-   {
-      register_f |= FLAG_C_MASK;
-   }
+   // NOTE(law): Set the Carry flag if adding the full 8 bits of register A and
+   // the incoming value would create a sum greater than the maximum byte value
+   // 0xFF (assuming the types used avoided an overflow).
+   register_f = (register_f & ~FLAG_C_MASK) | ((extended_sum > 0xFF) << FLAG_C_BIT);
 }
 
 static void
@@ -1136,33 +1146,18 @@ sub(unsigned char value)
 
    register_a -= value;
 
-   // NOTE(law): Clear the flags to zero.
-   register_f = 0;
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
 
-   // NOTE(law): Set the Zero flag bit if the result of the computation produced
-   // a zero.
-   if(register_a == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
-
-   // NOTE(law): Always the Subtraction flag during a SUB operation.
+   // NOTE(law): Always set the Subtraction flag.
    register_f |= FLAG_N_MASK;
 
-   // NOTE(law): Set the Half Carry flag if subtracting the low 4 bits of the
-   // incoming value from the low 4 bits of register A results in a negative
-   // number.
-   if(is_half_negative)
-   {
-      register_f |= FLAG_H_MASK;
-   }
+   // NOTE(law): Set the Half Carry flag if subractring the low 4 bits of register A
+   // and the incoming value sets bit 4 of the resulting sum.
+   register_f = (register_f & ~FLAG_H_MASK) | (is_half_negative << FLAG_H_BIT);
 
-   // NOTE(law): Set the Carry flag if subtracting the the incoming value from
-   // register A results in a negative number.
-   if(is_negative)
-   {
-      register_f |= FLAG_C_MASK;
-   }
+   // NOTE(law): Set the Carry flag if the result is less than zero.
+   register_f = (register_f & ~FLAG_C_MASK) | (is_negative << FLAG_C_BIT);
 }
 
 static void
@@ -1175,24 +1170,18 @@ sbc(unsigned char value)
 
    register_a -= (value);
 
-   register_f = 0;
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
 
-   if(register_a == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
-
+   // NOTE(law): Always set the Subtraction flag.
    register_f |= FLAG_N_MASK;
 
-   if(is_half_negative)
-   {
-      register_f |= FLAG_H_MASK;
-   }
+   // NOTE(law): Set the Half Carry flag if subractring the low 4 bits of register A
+   // and the incoming value sets bit 4 of the resulting sum.
+   register_f = (register_f & ~FLAG_H_MASK) | (is_half_negative << FLAG_H_BIT);
 
-   if(is_negative)
-   {
-      register_f |= FLAG_C_MASK;
-   }
+   // NOTE(law): Set the Carry flag if the result is less than zero.
+   register_f = (register_f & ~FLAG_C_MASK) | (is_negative << FLAG_C_BIT);
 }
 
 static void
@@ -1200,12 +1189,17 @@ xor(unsigned char value)
 {
    register_a ^= value;
 
-   register_f = 0;
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
 
-   if(register_a == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
+   // NOTE(law): Always reset the Subtraction mask.
+   register_f &= ~FLAG_N_MASK;
+
+   // NOTE(law): Always reset the Half Carry mask.
+   register_f &= ~FLAG_H_MASK;
+
+   // NOTE(law): Always reset the Carry mask.
+   register_f &= ~FLAG_C_MASK;
 }
 
 static void
@@ -1213,12 +1207,17 @@ or(unsigned char value)
 {
    register_a |= value;
 
-   register_f = 0;
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
 
-   if(register_a == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
+   // NOTE(law): Always reset the Subtraction mask.
+   register_f &= ~FLAG_N_MASK;
+
+   // NOTE(law): Always reset the Half Carry mask.
+   register_f &= ~FLAG_H_MASK;
+
+   // NOTE(law): Always reset the Carry mask.
+   register_f &= ~FLAG_C_MASK;
 }
 
 static void
@@ -1226,80 +1225,80 @@ and(unsigned char value)
 {
    register_a &= value;
 
-   register_f = 0;
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
 
-   if(register_a == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
+   // NOTE(law): Always reset the Subtraction mask.
+   register_f &= ~FLAG_N_MASK;
 
+   // NOTE(law): Always set the Half Carry mask.
    register_f |= FLAG_H_MASK;
+
+   // NOTE(law): Always reset the Carry mask.
+   register_f &= ~FLAG_C_MASK;
 }
 
 static void
 cp(unsigned char value)
 {
-   bool is_negative = (signed char)register_a < (signed char)value;
-   bool is_half_negative = (signed char)(register_a & 0xF) < (signed char)(value & 0xF);
+   // NOTE(law): If the compared values are equivalent, set the Zero flag.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == value) << FLAG_Z_BIT);
 
-   register_f = 0;
-
-   if(register_a == value)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
-
+   // NOTE(law): Always set the subtraction flag for comparisons.
    register_f |= FLAG_N_MASK;
 
-   if(is_half_negative)
-   {
-      register_f |= FLAG_H_MASK;
-   }
+   // NOTE(law): If the result of subtracting the first 4 bits of value from the
+   // first 4 bits of A would produce a result that is less than 0, set the
+   // Half Carry flag.
+   bool is_half_negative = (signed char)(register_a & 0xF) < (signed char)(value & 0xF);
+   register_f = (register_f & ~FLAG_H_MASK) | (is_half_negative << FLAG_H_BIT);
 
-   if(is_negative)
-   {
-      register_f |= FLAG_C_MASK;
-   }
+   // NOTE(law): If the result of subtracting value from A would produce a
+   // result that is less than 0, set the Carry flag.
+   bool is_negative = (signed char)register_a < (signed char)value;
+   register_f = (register_f & ~FLAG_C_MASK) | (is_negative << FLAG_C_BIT);
 }
 
 static void
 inc(unsigned char *value)
 {
+   // NOTE(law): Increment
+
    unsigned char half_sum = (*value & 0xF) + 1;
 
    *value += 1;
 
-   if(register_a == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((*value == 0) << FLAG_Z_BIT);
 
+   // NOTE(law): The Subtraction flag is always reset.
    register_f &= ~FLAG_N_MASK;
 
-   if((half_sum & 0x10) == 0x10)
-   {
-      register_f |= FLAG_H_MASK;
-   }
+   // NOTE(law): Set the Half Carry flag when a carry from bit 3 occurs.
+   register_f = (register_f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
+
+   // NOTE(law): The Carry flag is not affected.
 }
 
 static void
 dec(unsigned char *value)
 {
+   // NOTE(law): Decrement
+
    bool is_half_negative = (signed char)(*value & 0xF) < 1;
 
    *value -= 1;
 
-   if(register_a == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((*value == 0) << FLAG_Z_BIT);
 
+   // NOTE(law): The Subtraction flag is always set.
    register_f |= FLAG_N_MASK;
 
-   if(is_half_negative)
-   {
-      register_f |= FLAG_H_MASK;
-   }
+   // NOTE(law): Set the Half Carry flag when a carry from bit 3 occurs.
+   register_f = (register_f & ~FLAG_H_MASK) | (is_half_negative << FLAG_H_BIT);
+
+   // NOTE(law): The Carry flag is not affected.
 }
 
 static void
@@ -1312,49 +1311,56 @@ add16(unsigned short value)
    register_h = (sum >> 8);
    register_l = (sum & 0xFF);
 
+   // NOTE(law): The Zero flag is not affected.
+
+   // NOTE(law): The Subtraction flag is always unset.
    register_f &= ~FLAG_N_MASK;
 
-   if((half_sum & 0x10) == 0x10)
-   {
-      register_f |= FLAG_H_MASK;
-   }
+   // NOTE(law): Set the Half Carry flag when a carry from bit 3 occurs.
+   register_f = (register_f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
 
-   if(extended_sum > 0xFFFF)
-   {
-      register_f |= FLAG_C_MASK;
-   }
+   register_f = (register_f & ~FLAG_C_MASK) | ((extended_sum > 0xFFFF) << FLAG_C_BIT);
 }
 
 static void
 inc16_bytes(unsigned char *high, unsigned char *low)
 {
-   unsigned short value = ((unsigned short)high << 8) | ((unsigned short)low & 0xFF);
+   unsigned short value = ((unsigned short)*high << 8) | ((unsigned short)*low & 0xFF);
    value += 1;
 
    *high = (value >> 8);
    *low  = (value & 0xFF);
+
+
+   // NOTE(law): The flags are not affected by 16-bit increments/decrements.
 }
 
 static void
 dec16_bytes(unsigned char *high, unsigned char *low)
 {
-   unsigned short value = ((unsigned short)high << 8) | ((unsigned short)low & 0xFF);
+   unsigned short value = ((unsigned short)*high << 8) | (unsigned short)*low;
    value -= 1;
 
    *high = (value >> 8);
    *low  = (value & 0xFF);
+
+   // NOTE(law): The flags are not affected by 16-bit increments/decrements.
 }
 
 static void
 inc16(unsigned short *value)
 {
    *value += 1;
+
+   // NOTE(law): The flags are not affected by 16-bit increments/decrements.
 }
 
 static void
 dec16(unsigned short *value)
 {
    *value -= 1;
+
+   // NOTE(law): The flags are not affected by 16-bit increments/decrements.
 }
 
 static void
@@ -1365,7 +1371,7 @@ jp(unsigned char *stream, bool should_jump)
 
    if(should_jump)
    {
-      unsigned short address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
+      unsigned short address = ((unsigned short)address_high << 8) | (unsigned short)address_low;
       register_pc = address;
    }
 }
@@ -1373,7 +1379,7 @@ jp(unsigned char *stream, bool should_jump)
 static void
 jr(unsigned char *stream, bool should_jump)
 {
-   unsigned char offset = stream[register_pc++];
+   signed char offset = stream[register_pc++];
 
    if(should_jump)
    {
@@ -1393,7 +1399,7 @@ call(unsigned char *stream, bool should_jump)
       stream[--register_sp] = address_high;
       stream[--register_sp] = address_low;
 
-      unsigned short address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
+      unsigned short address = ((unsigned short)address_high << 8) | (unsigned short)address_low;
       register_pc = address;
    }
 }
@@ -1406,7 +1412,7 @@ ret(unsigned char *stream, bool should_jump)
 
    if(should_jump)
    {
-      unsigned short address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
+      unsigned short address = ((unsigned short)address_high << 8) | (unsigned short)address_low;
       register_pc = address;
    }
 }
@@ -1422,17 +1428,80 @@ rst(unsigned char *stream, unsigned char address_low)
 }
 
 static void
+rl(unsigned char *value)
+{
+   // NOTE(law): Rotate Left
+
+   unsigned char previous_bit7 = (*value >> 7);
+   unsigned char previous_c = FLAG_C;
+
+   *value <<= 1;
+
+   // NOTE(law): Set bit 0 to the pre-shift value of the Carry flag (a value of zero
+   // should have already been shifted into position zero).
+   *value |= (previous_c << 0);
+
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((*value == 0) << FLAG_Z_BIT);
+
+   // NOTE(law): The Half Carry flag is always reset.
+   register_f &= ~FLAG_N_MASK;
+
+   // NOTE(law): The Subtraction flag is always reset.
+   register_f &= ~FLAG_H_MASK;
+
+   // NOTE(law): Set the Carry flag to the pre-shift value of bit 7.
+   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
+}
+
+static void
 rla()
 {
+   // NOTE(law): Rotate Left Accumulator
+
    unsigned char previous_bit7 = (register_a >> 7);
    unsigned char previous_c = FLAG_C;
 
    register_a <<= 1;
 
-   // NOTE(law): Set bit 0 of value to the previous value of the Carry flag
-   register_a = (register_a & ~0x01) | (previous_c);
+   // NOTE(law): Set bit 0 of value to the previous value of the Carry flag (a
+   // value of zero should have already been shifted into position zero).
+   register_a |= (previous_c << 0);
 
-   register_f = 0;
+   // NOTE(law): The Zero flag is always reset.
+   register_f &= ~FLAG_Z_MASK;
+
+   // NOTE(law): The Subtraction flag is always reset.
+   register_f &= ~FLAG_N_MASK;
+
+   // NOTE(law): The Half Carry flag is always reset.
+   register_f &= ~FLAG_H_MASK;
+
+   // NOTE(law): Set the Carry flag to the pre-shift value of bit 7.
+   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
+}
+
+static void
+rlc(unsigned char *value)
+{
+   // NOTE(law): Rotate Left Circular
+
+   unsigned char previous_bit7 = (*value >> 7);
+
+   *value <<= 1;
+
+   // NOTE(law): Set bit 0 to the pre-shift value of bit 7 (a value of zero
+   // should have already been shifted into position zero).
+   *value |= (previous_bit7 << 0);
+
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((*value == 0) << FLAG_Z_BIT);
+
+   // NOTE(law): The Subtraction flag is always reset.
+   register_f &= ~FLAG_N_MASK;
+
+   // NOTE(law): The Half Carry flag is always reset.
+   register_f &= ~FLAG_H_MASK;
 
    // NOTE(law): Set the Carry flag to the pre-shift value of bit 7.
    register_f = (register_f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
@@ -1441,133 +1510,150 @@ rla()
 static void
 rlca()
 {
+   // NOTE(law): Rotate Left Circular Accumulator
+
+   unsigned char previous_bit7 = (register_a >> 7);
+
    register_a <<= 1;
 
-   register_f = 0;
+   // NOTE(law): Set bit 0 to the pre-shift value of bit 7 (a value of zero
+   // should have already been shifted into position zero).
+   register_a |= (previous_bit7 << 0);
 
-   // NOTE(law): Set the Carry flag to the value of bit 0 (i.e. pre-shift value
-   // of bit 7).
-   register_f |= ((register_a & 0x01) << FLAG_C_BIT);
+   // NOTE(law): The Zero flag is always reset.
+   register_f &= ~FLAG_Z_MASK;
+
+   // NOTE(law): The Half Carry flag is always reset.
+   register_f &= ~FLAG_N_MASK;
+
+   // NOTE(law): The Subtraction flag is always reset.
+   register_f &= ~FLAG_H_MASK;
+
+   // NOTE(law): Set the Carry flag to the pre-shift value of bit 7.
+   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
+}
+
+static void
+rr(unsigned char *value)
+{
+   // NOTE(law): Rotate Right
+
+   unsigned char previous_bit0 = (*value & 0x01);
+   unsigned char previous_c = FLAG_C;
+
+   *value >>= 1;
+
+   // NOTE(law): Set bit 7 to the pre-shift value of the Carry flag (a value of zero
+   // should have already been shifted into position seven).
+   *value |= (previous_c << 7);
+
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((*value == 0) << FLAG_Z_BIT);
+
+   // NOTE(law): The Half Carry flag is always reset.
+   register_f &= ~FLAG_N_MASK;
+
+   // NOTE(law): The Subtraction flag is always reset.
+   register_f &= ~FLAG_H_MASK;
+
+   // NOTE(law): Set the Carry flag to the pre-shift value of bit 0.
+   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
 }
 
 static void
 rra()
 {
+   // NOTE(law): Rotate Right Accumulator
+
    unsigned char previous_bit0 = (register_a & 0x01);
    unsigned char previous_c = FLAG_C;
 
    register_a >>= 1;
 
-   // NOTE(law): Set bit 7 of value to the previous value of the Carry flag
-   register_a = (register_a & ~(1 << 7)) | (previous_c << 7);
+   // NOTE(law): Set bit 7 of value to the previous value of the Carry flag (a
+   // value of zero should have already been shifted into position seven).
+   register_a |= (previous_c << 7);
 
-   register_f = 0;
+   // NOTE(law): The Zero flag is not affected.
 
-   // NOTE(law): Set the Carry flag to the pre-shift value of bit 7.
+   // NOTE(law): The Subtraction flag is always reset.
+   register_f &= ~FLAG_N_MASK;
+
+   // NOTE(law): The Half Carry flag is always reset.
+   register_f &= ~FLAG_H_MASK;
+
+   // NOTE(law): Set the Carry flag to the pre-shift value of bit 0.
+   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
+}
+
+static void
+rrc(unsigned char *value)
+{
+   // NOTE(law): Rotate Right Circular
+
+   unsigned char previous_bit0 = (*value & 0x01);
+
+   *value >>= 1;
+
+   // NOTE(law): Set bit 7 to the pre-shift value of bit 0 (a value of zero
+   // should have already been shifted into position seven).
+   *value |= (previous_bit0 << 7);
+
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((*value == 0) << FLAG_Z_BIT);
+
+   // NOTE(law): The Half Carry flag is always reset.
+   register_f &= ~FLAG_H_MASK;
+
+   // NOTE(law): The Subtraction flag is always reset.
+   register_f &= ~FLAG_N_MASK;
+
+   // NOTE(law): Set the Carry flag to the pre-shift value of bit 0.
    register_f = (register_f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
 }
 
 static void
 rrca()
 {
+   // NOTE(law): Rotate Right Circular Accumulator
+
+   unsigned char previous_bit0 = (register_a & 0x01);
+
    register_a >>= 1;
 
-   register_f = 0;
+   // NOTE(law): Set bit 7 to the pre-shift value of bit 0 (a value of zero
+   // should have already been shifted into position seven).
+   register_a |= (previous_bit0 << 7);
 
-   // NOTE(law): Set the Carry flag to the value of bit 7 (i.e. pre-shift value
-   // of bit 0).
-   register_f |= ((register_a >> 7) << FLAG_C_BIT);
-}
+   // NOTE(law): The Zero flag is always reset.
+   register_f &= ~FLAG_Z_MASK;
 
-static void
-rl(unsigned char *value)
-{
-   unsigned char previous_bit7 = (*value >> 7);
-   unsigned char previous_c = FLAG_C;
+   // NOTE(law): The Subtraction flag is always reset.
+   register_f &= ~FLAG_N_MASK;
 
-   *value <<= 1;
-
-   // NOTE(law): Set bit 0 of value to the previous value of the Carry flag
-   *value = (*value & ~0x01) | (previous_c);
-
-   register_f = 0;
-
-   // NOTE(law): Set the Carry flag to the pre-shift value of bit 7.
-   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
-
-   if(*value == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
-}
-
-static void
-rlc(unsigned char *value)
-{
-   *value <<= 1;
-
-   register_f = 0;
-
-   // NOTE(law): Set the Carry flag to the value of bit 0 (i.e. pre-shift value
-   // of bit 7).
-   register_f |= ((*value & 0x01) << FLAG_C_BIT);
-
-   if(*value == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
-}
-
-static void
-rr(unsigned char *value)
-{
-   unsigned char previous_bit0 = (*value & 0x01);
-   unsigned char previous_c = FLAG_C;
-
-   *value >>= 1;
-
-   // NOTE(law): Set bit 7 of value to the previous value of the Carry flag
-   *value = (*value & ~(1 << 7)) | (previous_c << 7);
-
-   register_f = 0;
+   // NOTE(law): The Half Carry flag is always reset.
+   register_f &= ~FLAG_H_MASK;
 
    // NOTE(law): Set the Carry flag to the pre-shift value of bit 0.
    register_f = (register_f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
-
-   if(*value == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
-}
-
-static void
-rrc(unsigned char *value)
-{
-   *value >>= 1;
-
-   register_f = 0;
-
-   // NOTE(law): Set the Carry flag to the value of bit 7 (i.e. pre-shift value
-   // of bit 0).
-   register_f |= ((*value >> 7) << FLAG_C_BIT);
-
-   if(*value == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
 }
 
 static void
 bit(unsigned int bit_index, unsigned char value)
 {
    // NOTE(law) Update the Zero flag based on the value of specified bit index
-   // of the value.
+   // of the value. If the bit is zero, set the flag, else reset it.
 
    unsigned char bit_value = ((value >> bit_index) & 0x01);
-   register_f = (register_f & ~(FLAG_Z_MASK)) | (bit_value << FLAG_Z_BIT);
+   register_f = (register_f & ~(FLAG_Z_MASK)) | ((bit_value == 0) << FLAG_Z_BIT);
 
+   // NOTE(law): The Subtraction flag is always reset.
    register_f &= ~FLAG_N_MASK;
+
+   // NOTE(law): The Half Carry flag is always set.
    register_f |= FLAG_H_MASK;
+
+   // NOTE(law): The Carry flag is not affected.
 }
 
 static void
@@ -1585,35 +1671,47 @@ res(unsigned int bit_index, unsigned char *value)
 static void
 sla(unsigned char *value)
 {
+   // NOTE(law): Shift Left Arithmetic
+
    unsigned char previous_bit7 = (*value >> 7);
 
    *value <<= 1;
 
-   register_f = 0;
-   if(*value == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((*value == 0) << FLAG_Z_BIT);
 
-   register_f |= (previous_bit7 << FLAG_C_BIT);
+   // NOTE(law): The Subtraction flag is always reset.
+   register_f &= ~FLAG_H_MASK;
+
+   // NOTE(law): The Half Carry flag is always reset.
+   register_f &= ~FLAG_H_MASK;
+
+   // NOTE(law): Set the Carry flag to the pre-shift value of bit 7.
+   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
 }
 
 static void
 sra(unsigned char *value)
 {
+   // NOTE(law): Shift Right Arithmetic
+
    unsigned char previous_bit0 = (*value & 0x01);
 
    // TODO(law): Confirm that casting to a signed value actually produces an
    // arithmetic shift in this case.
    *value = ((signed short)value >> 1);
 
-   register_f = 0;
-   if(*value == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((*value == 0) << FLAG_Z_BIT);
 
-   register_f |= (previous_bit0 << FLAG_C_BIT);
+   // NOTE(law): The Subtraction flag is always reset.
+   register_f &= ~FLAG_H_MASK;
+
+   // NOTE(law): The Half Carry flag is always reset.
+   register_f &= ~FLAG_H_MASK;
+
+   // NOTE(law): Set the Carry flag to the pre-shift value of bit 0.
+   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
 }
 
 static void
@@ -1622,25 +1720,31 @@ swap(unsigned char *value)
    unsigned char high_nibble = (*value >> 4);
    unsigned char low_nibble = (*value & 0xF);
 
-   *value = (low_nibble << 4) | (high_nibble & 0xF);
+   *value = (low_nibble << 4) | high_nibble;
 }
 
 static void
 srl(unsigned char *value)
 {
+   // NOTE(law): Shift Right Logical
+
    unsigned char previous_bit0 = (*value & 0x01);
 
    // TODO(law): Confirm that using an unsigned value actually produces a
    // logical shift in this case.
    *value >>= 1;
 
-   register_f = 0;
-   if(*value == 0)
-   {
-      register_f |= FLAG_Z_MASK;
-   }
+   // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
+   register_f = (register_f & ~FLAG_Z_MASK) | ((*value == 0) << FLAG_Z_BIT);
 
-   register_f |= (previous_bit0 << FLAG_C_BIT);
+   // NOTE(law): The Subtraction flag is always reset.
+   register_f &= ~FLAG_H_MASK;
+
+   // NOTE(law): The Half Carry flag is always reset.
+   register_f &= ~FLAG_H_MASK;
+
+   // NOTE(law): Set the Carry flag to the pre-shift value of bit 0.
+   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
 }
 
 static void
@@ -2064,8 +2168,8 @@ fetch_and_execute(unsigned char *stream)
          case 0xF2: {register_a = stream[0xFF00 + register_c];} break; // LDH A, (0xFF00 + C)
          case 0xE2: {stream[0xFF00 + register_c] = register_a;} break; // LDH (0xFF00 + C), A
 
-         case 0xF0: {register_a = stream[0xFF00 + stream[register_pc++]];} break; // LDH A, (0xFF + n)
-         case 0xE0: {stream[0xFF00 + stream[register_pc++]] = register_a;} break; // LDH (0xFF + n), A
+         case 0xF0: {register_a = stream[0xFF00 + stream[register_pc++]];} break; // LDH A, (0xFF00 + n)
+         case 0xE0: {stream[0xFF00 + stream[register_pc++]] = register_a;} break; // LDH (0xFF00 + n), A
 
          case 0x22: // LDI (HL), A
          {
@@ -2190,6 +2294,7 @@ fetch_and_execute(unsigned char *stream)
 
             register_sp = value;
          } break;
+
 
          // NOTE(law): Rotate and Shift instructions
          case 0x07: rlca(); break;
@@ -2340,44 +2445,46 @@ fetch_and_execute(unsigned char *stream)
          case 0xE8: // ADD SP, dd
          {
             signed char offset = stream[register_pc++];
-            signed short address = (signed short)register_sp + offset;
+
+            signed int extended_address = (signed int)register_sp + (signed int)offset;
             unsigned char half_sum = (register_sp & 0xF) + (offset & 0xF);
 
-            register_sp = (unsigned short)address;
+            register_sp = (unsigned short)extended_address;
 
-            register_f = 0;
+            // NOTE(law): The Zero flag is always unset.
+            register_f &= ~FLAG_Z_MASK;
 
-            if((half_sum & 0x10) == 0x10)
-            {
-               register_f |= FLAG_H_MASK;
-            }
+            // NOTE(law): The Subtraction flag is always unset.
+            register_f &= ~FLAG_N_MASK;
 
-            if(address > 0xFF)
-            {
-               register_f |= FLAG_C_MASK;
-            }
+            // NOTE(law): Set the Half Carry flag when a carry from bit 3 occurs.
+            register_f = (register_f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
+
+            // NOTE(law): Set the Carry flag when a carry from bit 7 occurs.
+            register_f = (register_f & ~FLAG_C_MASK) | ((extended_address > 0xFFFF) << FLAG_C_BIT);
          } break;
 
          case 0xF8: // LD HL, SP + dd
          {
             signed char offset = stream[register_pc++];
-            signed short address = (signed short)register_sp + offset;
+
+            signed int extended_address = (signed int)register_sp + (signed int)offset;
             unsigned char half_sum = (register_sp & 0xF) + (offset & 0xF);
 
-            register_h = address >> 8;
-            register_l = address & 0xFF;
+            register_h = (unsigned char)((unsigned short)extended_address >> 8);
+            register_l = (unsigned char)((unsigned short)extended_address & 0xFF);
 
-            register_f = 0;
+            // NOTE(law): The Zero flag is always unset.
+            register_f &= ~FLAG_Z_MASK;
 
-            if((half_sum & 0x10) == 0x10)
-            {
-               register_f |= FLAG_H_MASK;
-            }
+            // NOTE(law): The Subtraction flag is always unset.
+            register_f &= ~FLAG_N_MASK;
 
-            if(address > 0xFF)
-            {
-               register_f |= FLAG_C_MASK;
-            }
+            // NOTE(law): Set the Half Carry flag when a carry from bit 3 occurs.
+            register_f = (register_f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
+
+            // NOTE(law): Set the Carry flag when a carry from bit 7 occurs.
+            register_f = (register_f & ~FLAG_C_MASK) | ((extended_address > 0xFFFF) << FLAG_C_BIT);
          } break;
 
 
@@ -2386,14 +2493,9 @@ fetch_and_execute(unsigned char *stream)
          {
             register_f &= ~FLAG_N_MASK;
             register_f &= ~FLAG_H_MASK;
-            if(FLAG_C)
-            {
-               register_f &= ~FLAG_C_MASK;
-            }
-            else
-            {
-               register_f |= FLAG_C_MASK;
-            }
+
+            unsigned char flipped_c = !FLAG_C;
+            register_f = (register_f & ~FLAG_C_MASK) | (flipped_c << FLAG_C_BIT);
          } break;
 
          case 0x37: // SCF
@@ -2406,8 +2508,8 @@ fetch_and_execute(unsigned char *stream)
          case 0x00: {} break; // NOP
          case 0x76: {halt = true;} break; // HALT
          case 0x10: {stop = true; register_pc++;} break; // STOP
-         case 0xF3: {ime = false;} break;
-         case 0xFB: {ime = true;} break;
+         case 0xF3: {ime = false;} break; // DI
+         case 0xFB: {ime = true;} break; // EI
 
 
          // NOTE(law): Jump instructions

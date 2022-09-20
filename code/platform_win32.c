@@ -95,11 +95,10 @@ PLATFORM_LOG(log)
 static unsigned char *
 win32_create_memory_map(unsigned char *cartridge_memory)
 {
-   // TODO(law): Load boot ROM and start read from address 0x0000;
-
-   unsigned char *result = 0;
+   unsigned char *result = malloc(0x10000);
 
    Cartridge_Header *header = get_cartridge_header(cartridge_memory);
+   ZeroMemory(result, 0x10000);
 
    // TODO(law): Support the remaining cartridge types!
    switch(header->cartridge_type)
@@ -108,9 +107,6 @@ win32_create_memory_map(unsigned char *cartridge_memory)
       {
          // NOTE(law): The cartridge contains 32KiB of ROM, which can be mapped
          // directly into 0x0000 to 0x7FFF.
-
-         result = malloc(0x10000);
-         ZeroMemory(result, 0x10000);
 
          memcpy(result, cartridge_memory, 0x8000);
       } break;
@@ -121,27 +117,9 @@ win32_create_memory_map(unsigned char *cartridge_memory)
       } break;
    }
 
-   // TODO(law): These values are for the DMG version of the Game Boy. Support
-   // the other versions as well.
-   register_a = 0x01;
-   register_f = FLAG_Z_MASK;
-   if(header->header_checksum)
-   {
-      register_f |= FLAG_H_MASK;
-      register_f |= FLAG_C_MASK;
-   }
-   register_b = 0x00;
-   register_c = 0x13;
-   register_d = 0x00;
-   register_e = 0xD8;
-   register_h = 0x10;
-   register_l = 0x4D;
-   register_pc = 0x0100;
-   register_sp = 0xFFFE;
-
-   unsigned char *stream = result;
-   REGISTER_IE = 0x00;
-   REGISTER_IF = 0xE1;
+   // TODO(law): Set the boot ROM up in such a way that it can be unmapped after
+   // it is executed.
+   memcpy(result, boot_rom, sizeof(boot_rom));
 
    return(result);
 }
@@ -311,7 +289,6 @@ win32_set_resolution_scale(HWND window, unsigned int scale)
 
       unsigned int status_height = win32_get_status_height(window);
       window_height += status_height;
-
 
       SetWindowPos(window, 0, 0, 0, window_width, window_height, SWP_NOMOVE);
    }
@@ -509,13 +486,13 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
                   log("No cartridge is currently loaded.\n");
                }
             }
-            else if(wparam == 'D')
+            else if(wparam == 'P')
             {
                // NOTE(law): Print the disassembly.
                if(win32_global_rom.memory)
                {
                   log("Parsing instruction stream...\n");
-                  disassemble_stream(win32_global_rom.memory, 0, win32_global_rom.size);
+                  disassemble_stream(win32_global_memory_map, 0, 0x10000);
                }
                else
                {
