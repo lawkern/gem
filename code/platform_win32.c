@@ -9,6 +9,7 @@
 #include "gem.c"
 
 static bool win32_global_is_running;
+static bool win32_global_is_paused;
 static Platform_File win32_global_rom;
 static unsigned char *win32_global_memory_map;
 
@@ -488,6 +489,10 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
             }
             else if(wparam == 'P')
             {
+               win32_global_is_paused = !win32_global_is_paused;
+            }
+            else if(wparam == 'D')
+            {
                // NOTE(law): Print the disassembly.
                if(win32_global_rom.memory)
                {
@@ -504,7 +509,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
                // NOTE(law): Fetch and execute the next instruction.
                if(win32_global_rom.memory)
                {
-                  log("Fetching and executing instruction... ");
+                  log("Fetching and executing instruction...\n");
 
                   handle_interrupts(win32_global_memory_map);
                   fetch_and_execute(win32_global_memory_map);
@@ -610,7 +615,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
          DispatchMessage(&message);
       }
 
-      if(win32_global_memory_map)
+      if(!win32_global_is_paused && win32_global_memory_map)
       {
          handle_interrupts(win32_global_memory_map);
          fetch_and_execute(win32_global_memory_map);
