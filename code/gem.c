@@ -122,7 +122,7 @@ validate_cartridge_header(unsigned char *rom_memory, size_t rom_size)
       if(logo[byte_index] != header->logo[byte_index])
       {
          log("ERROR: Logo mismatch at byte index %d ", byte_index);
-         log("(header: 0x%02x, expected: 0x%02x)\n", header->logo[byte_index], logo[byte_index]);
+         log("(header: 0x%02X, expected: 0x%02X)\n", header->logo[byte_index], logo[byte_index]);
 
          return(false);
       }
@@ -139,7 +139,7 @@ validate_cartridge_header(unsigned char *rom_memory, size_t rom_size)
    if(header_checksum != header->header_checksum)
    {
       log("ERROR: Computed header checksum did not match value in header. ");
-      log("(header: 0x%02x, computed: 0x%02x.\n", header_checksum, header->header_checksum);
+      log("(header: 0x%02X, computed: 0x%02X.\n", header_checksum, header->header_checksum);
 
       return(false);
    }
@@ -160,7 +160,7 @@ validate_cartridge_header(unsigned char *rom_memory, size_t rom_size)
       // NOTE(law): The global checksum is not verified by the majority of games
       // (Pokemon Stadium's GB Tower emulator is an exception).
       log("WARNING: Computed global checksum did not match value in header. ");
-      log("(header: 0x%04x, computed: %0x04x)\n", header->global_checksum, global_checksum);
+      log("(header: 0x%04X, computed: %0x04X)\n", header->global_checksum, global_checksum);
    }
 
    log("SUCCESS: The cartridge header was validated.\n");
@@ -178,7 +178,7 @@ void dump_cartridge_header(unsigned char *stream)
    log("  ENTRY POINT: 0x%08x\n", header->entry_point);
 
    log("  TITLE: %s\n", header->title);
-   log("  SGB FLAG: 0x%02x\n", header->sgb_flag);
+   log("  SGB FLAG: 0x%02X\n", header->sgb_flag);
 
    static char *cartridge_types[] =
    {
@@ -250,8 +250,767 @@ void dump_cartridge_header(unsigned char *stream)
    }
 
    log("  MASK ROM VERSION NUMBER: %#x\n", header->mask_rom_version_number);
-   log("  HEADER CHECKSUM: 0x%02x\n", header->header_checksum);
-   log("  GLOBAL CHECKSUM: 0x%04x\n", header->global_checksum);
+   log("  HEADER CHECKSUM: 0x%02X\n", header->header_checksum);
+   log("  GLOBAL CHECKSUM: 0x%04X\n", header->global_checksum);
+}
+
+static unsigned int
+disassemble_instruction(unsigned char *stream, unsigned int offset)
+{
+   unsigned int initial_offset = offset;
+
+   // NOTE(law): Print the address of the current instruction.
+   log("0x%04X  ", offset);
+
+   unsigned char opcode = stream[offset++];
+   if(opcode == 0xCB)
+   {
+      // NOTE(law): Parse prefix instructions.
+      switch(opcode)
+      {
+         // NOTE(law): Rotate and Shift instructions
+         case 0x00: {log("RLC B               ");} break;
+         case 0x01: {log("RLC C               ");} break;
+         case 0x02: {log("RLC D               ");} break;
+         case 0x03: {log("RLC E               ");} break;
+         case 0x04: {log("RLC H               ");} break;
+         case 0x05: {log("RLC L               ");} break;
+         case 0x06: {log("RLC (HL)            ");} break;
+         case 0x07: {log("RLC A               ");} break;
+
+         case 0x08: {log("RRC B               ");} break;
+         case 0x09: {log("RRC C               ");} break;
+         case 0x0A: {log("RRC D               ");} break;
+         case 0x0B: {log("RRC E               ");} break;
+         case 0x0C: {log("RRC H               ");} break;
+         case 0x0D: {log("RRC L               ");} break;
+         case 0x0E: {log("RRC (HL)            ");} break;
+         case 0x0F: {log("RRC A               ");} break;
+
+         case 0x10: {log("RL B                ");} break;
+         case 0x11: {log("RL C                ");} break;
+         case 0x12: {log("RL D                ");} break;
+         case 0x13: {log("RL E                ");} break;
+         case 0x14: {log("RL H                ");} break;
+         case 0x15: {log("RL L                ");} break;
+         case 0x16: {log("RL (HL)             ");} break;
+         case 0x17: {log("RL A                ");} break;
+
+         case 0x18: {log("RR B                ");} break;
+         case 0x19: {log("RR C                ");} break;
+         case 0x1A: {log("RR D                ");} break;
+         case 0x1B: {log("RR E                ");} break;
+         case 0x1C: {log("RR H                ");} break;
+         case 0x1D: {log("RR L                ");} break;
+         case 0x1E: {log("RR (HL)             ");} break;
+         case 0x1F: {log("RR A                ");} break;
+
+         case 0x20: {log("SLA B               ");} break;
+         case 0x21: {log("SLA C               ");} break;
+         case 0x22: {log("SLA D               ");} break;
+         case 0x23: {log("SLA E               ");} break;
+         case 0x24: {log("SLA H               ");} break;
+         case 0x25: {log("SLA L               ");} break;
+         case 0x26: {log("SLA (HL)            ");} break;
+         case 0x27: {log("SLA A               ");} break;
+
+         case 0x28: {log("SRA B               ");} break;
+         case 0x29: {log("SRA C               ");} break;
+         case 0x2A: {log("SRA D               ");} break;
+         case 0x2B: {log("SRA E               ");} break;
+         case 0x2C: {log("SRA H               ");} break;
+         case 0x2D: {log("SRA L               ");} break;
+         case 0x2E: {log("SRA (HL)            ");} break;
+         case 0x2F: {log("SRA A               ");} break;
+
+         case 0x30: {log("SWAP B              ");} break;
+         case 0x31: {log("SWAP C              ");} break;
+         case 0x32: {log("SWAP D              ");} break;
+         case 0x33: {log("SWAP E              ");} break;
+         case 0x34: {log("SWAP H              ");} break;
+         case 0x35: {log("SWAP L              ");} break;
+         case 0x36: {log("SWAP (HL)           ");} break;
+         case 0x37: {log("SWAP A              ");} break;
+
+         case 0x38: {log("SRL B               ");} break;
+         case 0x39: {log("SRL C               ");} break;
+         case 0x3A: {log("SRL D               ");} break;
+         case 0x3B: {log("SRL E               ");} break;
+         case 0x3C: {log("SRL H               ");} break;
+         case 0x3D: {log("SRL L               ");} break;
+         case 0x3E: {log("SRL (HL)            ");} break;
+         case 0x3F: {log("SRL A               ");} break;
+
+
+            // NOTE(law): Single-bit Operation instructions
+         case 0x40: {log("BIT 0, B            ");} break;
+         case 0x41: {log("BIT 0, C            ");} break;
+         case 0x42: {log("BIT 0, D            ");} break;
+         case 0x43: {log("BIT 0, E            ");} break;
+         case 0x44: {log("BIT 0, H            ");} break;
+         case 0x45: {log("BIT 0, L            ");} break;
+         case 0x46: {log("BIT 0, (HL)         ");} break;
+         case 0x47: {log("BIT 0, A            ");} break;
+
+         case 0x48: {log("BIT 1, B            ");} break;
+         case 0x49: {log("BIT 1, C            ");} break;
+         case 0x4A: {log("BIT 1, D            ");} break;
+         case 0x4B: {log("BIT 1, E            ");} break;
+         case 0x4C: {log("BIT 1, H            ");} break;
+         case 0x4D: {log("BIT 1, L            ");} break;
+         case 0x4E: {log("BIT 1, (HL)         ");} break;
+         case 0x4F: {log("BIT 1, A            ");} break;
+
+         case 0x50: {log("BIT 2, B            ");} break;
+         case 0x51: {log("BIT 2, C            ");} break;
+         case 0x52: {log("BIT 2, D            ");} break;
+         case 0x53: {log("BIT 2, E            ");} break;
+         case 0x54: {log("BIT 2, H            ");} break;
+         case 0x55: {log("BIT 2, L            ");} break;
+         case 0x56: {log("BIT 2, (HL)         ");} break;
+         case 0x57: {log("BIT 2, A            ");} break;
+
+         case 0x58: {log("BIT 3, B            ");} break;
+         case 0x59: {log("BIT 3, C            ");} break;
+         case 0x5A: {log("BIT 3, D            ");} break;
+         case 0x5B: {log("BIT 3, E            ");} break;
+         case 0x5C: {log("BIT 3, H            ");} break;
+         case 0x5D: {log("BIT 3, L            ");} break;
+         case 0x5E: {log("BIT 3, (HL)         ");} break;
+         case 0x5F: {log("BIT 3, A            ");} break;
+
+         case 0x60: {log("BIT 4, B            ");} break;
+         case 0x61: {log("BIT 4, C            ");} break;
+         case 0x62: {log("BIT 4, D            ");} break;
+         case 0x63: {log("BIT 4, E            ");} break;
+         case 0x64: {log("BIT 4, H            ");} break;
+         case 0x65: {log("BIT 4, L            ");} break;
+         case 0x66: {log("BIT 4, (HL)         ");} break;
+         case 0x67: {log("BIT 4, A            ");} break;
+
+         case 0x68: {log("BIT 5, B            ");} break;
+         case 0x69: {log("BIT 5, C            ");} break;
+         case 0x6A: {log("BIT 5, D            ");} break;
+         case 0x6B: {log("BIT 5, E            ");} break;
+         case 0x6C: {log("BIT 5, H            ");} break;
+         case 0x6D: {log("BIT 5, L            ");} break;
+         case 0x6E: {log("BIT 5, (HL)         ");} break;
+         case 0x6F: {log("BIT 5, A            ");} break;
+
+         case 0x70: {log("BIT 6, B            ");} break;
+         case 0x71: {log("BIT 6, C            ");} break;
+         case 0x72: {log("BIT 6, D            ");} break;
+         case 0x73: {log("BIT 6, E            ");} break;
+         case 0x74: {log("BIT 6, H            ");} break;
+         case 0x75: {log("BIT 6, L            ");} break;
+         case 0x76: {log("BIT 6, (HL)         ");} break;
+         case 0x77: {log("BIT 6, A            ");} break;
+
+         case 0x78: {log("BIT 7, B            ");} break;
+         case 0x79: {log("BIT 7, C            ");} break;
+         case 0x7A: {log("BIT 7, D            ");} break;
+         case 0x7B: {log("BIT 7, E            ");} break;
+         case 0x7C: {log("BIT 7, H            ");} break;
+         case 0x7D: {log("BIT 7, L            ");} break;
+         case 0x7E: {log("BIT 7, (HL)         ");} break;
+         case 0x7F: {log("BIT 7, A            ");} break;
+
+         case 0x80: {log("RES 0, B            ");} break;
+         case 0x81: {log("RES 0, C            ");} break;
+         case 0x82: {log("RES 0, D            ");} break;
+         case 0x83: {log("RES 0, E            ");} break;
+         case 0x84: {log("RES 0, H            ");} break;
+         case 0x85: {log("RES 0, L            ");} break;
+         case 0x86: {log("RES 0, (HL)         ");} break;
+         case 0x87: {log("RES 0, A            ");} break;
+
+         case 0x88: {log("RES 1, B            ");} break;
+         case 0x89: {log("RES 1, C            ");} break;
+         case 0x8A: {log("RES 1, D            ");} break;
+         case 0x8B: {log("RES 1, E            ");} break;
+         case 0x8C: {log("RES 1, H            ");} break;
+         case 0x8D: {log("RES 1, L            ");} break;
+         case 0x8E: {log("RES 1, (HL)         ");} break;
+         case 0x8F: {log("RES 1, A            ");} break;
+
+         case 0x90: {log("RES 2, B            ");} break;
+         case 0x91: {log("RES 2, C            ");} break;
+         case 0x92: {log("RES 2, D            ");} break;
+         case 0x93: {log("RES 2, E            ");} break;
+         case 0x94: {log("RES 2, H            ");} break;
+         case 0x95: {log("RES 2, L            ");} break;
+         case 0x96: {log("RES 2, (HL)         ");} break;
+         case 0x97: {log("RES 2, A            ");} break;
+
+         case 0x98: {log("RES 3, B            ");} break;
+         case 0x99: {log("RES 3, C            ");} break;
+         case 0x9A: {log("RES 3, D            ");} break;
+         case 0x9B: {log("RES 3, E            ");} break;
+         case 0x9C: {log("RES 3, H            ");} break;
+         case 0x9D: {log("RES 3, L            ");} break;
+         case 0x9E: {log("RES 3, (HL)         ");} break;
+         case 0x9F: {log("RES 3, A            ");} break;
+
+         case 0xA0: {log("RES 4, B            ");} break;
+         case 0xA1: {log("RES 4, C            ");} break;
+         case 0xA2: {log("RES 4, D            ");} break;
+         case 0xA3: {log("RES 4, E            ");} break;
+         case 0xA4: {log("RES 4, H            ");} break;
+         case 0xA5: {log("RES 4, L            ");} break;
+         case 0xA6: {log("RES 4, (HL)         ");} break;
+         case 0xA7: {log("RES 4, A            ");} break;
+
+         case 0xA8: {log("RES 5, B            ");} break;
+         case 0xA9: {log("RES 5, C            ");} break;
+         case 0xAA: {log("RES 5, D            ");} break;
+         case 0xAB: {log("RES 5, E            ");} break;
+         case 0xAC: {log("RES 5, H            ");} break;
+         case 0xAD: {log("RES 5, L            ");} break;
+         case 0xAE: {log("RES 5, (HL)         ");} break;
+         case 0xAF: {log("RES 5, A            ");} break;
+
+         case 0xB0: {log("RES 6, B            ");} break;
+         case 0xB1: {log("RES 6, C            ");} break;
+         case 0xB2: {log("RES 6, D            ");} break;
+         case 0xB3: {log("RES 6, E            ");} break;
+         case 0xB4: {log("RES 6, H            ");} break;
+         case 0xB5: {log("RES 6, L            ");} break;
+         case 0xB6: {log("RES 6, (HL)         ");} break;
+         case 0xB7: {log("RES 6, A            ");} break;
+
+         case 0xB8: {log("RES 7, B            ");} break;
+         case 0xB9: {log("RES 7, C            ");} break;
+         case 0xBA: {log("RES 7, D            ");} break;
+         case 0xBB: {log("RES 7, E            ");} break;
+         case 0xBC: {log("RES 7, H            ");} break;
+         case 0xBD: {log("RES 7, L            ");} break;
+         case 0xBE: {log("RES 7, (HL)         ");} break;
+         case 0xBF: {log("RES 7, A            ");} break;
+
+         case 0xC0: {log("SET 0, B            ");} break;
+         case 0xC1: {log("SET 0, C            ");} break;
+         case 0xC2: {log("SET 0, D            ");} break;
+         case 0xC3: {log("SET 0, E            ");} break;
+         case 0xC4: {log("SET 0, H            ");} break;
+         case 0xC5: {log("SET 0, L            ");} break;
+         case 0xC6: {log("SET 0, (HL)         ");} break;
+         case 0xC7: {log("SET 0, A            ");} break;
+
+         case 0xC8: {log("SET 1, B            ");} break;
+         case 0xC9: {log("SET 1, C            ");} break;
+         case 0xCA: {log("SET 1, D            ");} break;
+         case 0xCB: {log("SET 1, E            ");} break;
+         case 0xCC: {log("SET 1, H            ");} break;
+         case 0xCD: {log("SET 1, L            ");} break;
+         case 0xCE: {log("SET 1, (HL)         ");} break;
+         case 0xCF: {log("SET 1, A            ");} break;
+
+         case 0xD0: {log("SET 2, B            ");} break;
+         case 0xD1: {log("SET 2, C            ");} break;
+         case 0xD2: {log("SET 2, D            ");} break;
+         case 0xD3: {log("SET 2, E            ");} break;
+         case 0xD4: {log("SET 2, H            ");} break;
+         case 0xD5: {log("SET 2, L            ");} break;
+         case 0xD6: {log("SET 2, (HL)         ");} break;
+         case 0xD7: {log("SET 2, A            ");} break;
+
+         case 0xD8: {log("SET 3, B            ");} break;
+         case 0xD9: {log("SET 3, C            ");} break;
+         case 0xDA: {log("SET 3, D            ");} break;
+         case 0xDB: {log("SET 3, E            ");} break;
+         case 0xDC: {log("SET 3, H            ");} break;
+         case 0xDD: {log("SET 3, L            ");} break;
+         case 0xDE: {log("SET 3, (HL)         ");} break;
+         case 0xDF: {log("SET 3, A            ");} break;
+
+         case 0xE0: {log("SET 4, B            ");} break;
+         case 0xE1: {log("SET 4, C            ");} break;
+         case 0xE2: {log("SET 4, D            ");} break;
+         case 0xE3: {log("SET 4, E            ");} break;
+         case 0xE4: {log("SET 4, H            ");} break;
+         case 0xE5: {log("SET 4, L            ");} break;
+         case 0xE6: {log("SET 4, (HL)         ");} break;
+         case 0xE7: {log("SET 4, A            ");} break;
+
+         case 0xE8: {log("SET 5, B            ");} break;
+         case 0xE9: {log("SET 5, C            ");} break;
+         case 0xEA: {log("SET 5, D            ");} break;
+         case 0xEB: {log("SET 5, E            ");} break;
+         case 0xEC: {log("SET 5, H            ");} break;
+         case 0xED: {log("SET 5, L            ");} break;
+         case 0xEE: {log("SET 5, (HL)         ");} break;
+         case 0xEF: {log("SET 5, A            ");} break;
+
+         case 0xF0: {log("SET 6, B            ");} break;
+         case 0xF1: {log("SET 6, C            ");} break;
+         case 0xF2: {log("SET 6, D            ");} break;
+         case 0xF3: {log("SET 6, E            ");} break;
+         case 0xF4: {log("SET 6, H            ");} break;
+         case 0xF5: {log("SET 6, L            ");} break;
+         case 0xF6: {log("SET 6, (HL)         ");} break;
+         case 0xF7: {log("SET 6, A            ");} break;
+
+         case 0xF8: {log("SET 7, B            ");} break;
+         case 0xF9: {log("SET 7, C            ");} break;
+         case 0xFA: {log("SET 7, D            ");} break;
+         case 0xFB: {log("SET 7, E            ");} break;
+         case 0xFC: {log("SET 7, H            ");} break;
+         case 0xFD: {log("SET 7, L            ");} break;
+         case 0xFE: {log("SET 7, (HL)         ");} break;
+         case 0xFF: {log("SET 7, A            ");} break;
+
+         default: {assert(!"UNHANDLED OPCODE");} break;
+      }
+   }
+   else
+   {
+      // NOTE(law): Parse non-prefix opcode.
+      switch(opcode)
+      {
+         // NOTE(law): 8-bit load instructions
+         case 0x40: {log("LD B, B             ");} break;
+         case 0x41: {log("LD B, C             ");} break;
+         case 0x42: {log("LD B, D             ");} break;
+         case 0x43: {log("LD B, E             ");} break;
+         case 0x44: {log("LD B, H             ");} break;
+         case 0x45: {log("LD B, L             ");} break;
+         case 0x46: {log("LD B, (HL)          ");} break;
+         case 0x47: {log("LD B, A             ");} break;
+
+         case 0x48: {log("LD C, B             ");} break;
+         case 0x49: {log("LD C, C             ");} break;
+         case 0x4A: {log("LD C, D             ");} break;
+         case 0x4B: {log("LD C, E             ");} break;
+         case 0x4C: {log("LD C, H             ");} break;
+         case 0x4D: {log("LD C, L             ");} break;
+         case 0x4E: {log("LD C, (HL)          ");} break;
+         case 0x4F: {log("LD C, A             ");} break;
+
+         case 0x50: {log("LD D, B             ");} break;
+         case 0x51: {log("LD D, C             ");} break;
+         case 0x52: {log("LD D, D             ");} break;
+         case 0x53: {log("LD D, E             ");} break;
+         case 0x54: {log("LD D, H             ");} break;
+         case 0x55: {log("LD D, L             ");} break;
+         case 0x56: {log("LD D, (HL)          ");} break;
+         case 0x57: {log("LD D, A             ");} break;
+
+         case 0x58: {log("LD E, B             ");} break;
+         case 0x59: {log("LD E, C             ");} break;
+         case 0x5A: {log("LD E, D             ");} break;
+         case 0x5B: {log("LD E, E             ");} break;
+         case 0x5C: {log("LD E, H             ");} break;
+         case 0x5D: {log("LD E, L             ");} break;
+         case 0x5E: {log("LD E, (HL)          ");} break;
+         case 0x5F: {log("LD E, A             ");} break;
+
+         case 0x60: {log("LD H, B             ");} break;
+         case 0x61: {log("LD H, C             ");} break;
+         case 0x62: {log("LD H, D             ");} break;
+         case 0x63: {log("LD H, E             ");} break;
+         case 0x64: {log("LD H, H             ");} break;
+         case 0x65: {log("LD H, L             ");} break;
+         case 0x66: {log("LD H, (HL)          ");} break;
+         case 0x67: {log("LD H, A             ");} break;
+
+         case 0x68: {log("LD L, B             ");} break;
+         case 0x69: {log("LD L, C             ");} break;
+         case 0x6A: {log("LD L, D             ");} break;
+         case 0x6B: {log("LD L, E             ");} break;
+         case 0x6C: {log("LD L, H             ");} break;
+         case 0x6D: {log("LD L, L             ");} break;
+         case 0x6E: {log("LD L, (HL)          ");} break;
+         case 0x6F: {log("LD L, A             ");} break;
+
+         case 0x70: {log("LD t(HL), B         ");} break;
+         case 0x71: {log("LD t(HL), C         ");} break;
+         case 0x72: {log("LD t(HL), D         ");} break;
+         case 0x73: {log("LD t(HL), E         ");} break;
+         case 0x74: {log("LD t(HL), H         ");} break;
+         case 0x75: {log("LD t(HL), L         ");} break;
+         case 0x77: {log("LD t(HL), A         ");} break;
+
+         case 0x78: {log("LD A, B             ");} break;
+         case 0x79: {log("LD A, C             ");} break;
+         case 0x7A: {log("LD A, D             ");} break;
+         case 0x7B: {log("LD A, E             ");} break;
+         case 0x7C: {log("LD A, H             ");} break;
+         case 0x7D: {log("LD A, L             ");} break;
+         case 0x7E: {log("LD A, (HL)          ");} break;
+         case 0x7F: {log("LD A, A             ");} break;
+
+         case 0x06: {log("LD B, 0x%02X          ", stream[offset++]);} break;
+         case 0x0E: {log("LD C, 0x%02X          ", stream[offset++]);} break;
+         case 0x16: {log("LD D, 0x%02X          ", stream[offset++]);} break;
+         case 0x1E: {log("LD E, 0x%02X          ", stream[offset++]);} break;
+         case 0x26: {log("LD H, 0x%02X          ", stream[offset++]);} break;
+         case 0x2E: {log("LD L, 0x%02X          ", stream[offset++]);} break;
+         case 0x36: {log("LD (HL), 0x%02X       ", stream[offset++]);} break;
+         case 0x3E: {log("LD A, 0x%02X          ", stream[offset++]);} break;
+
+         case 0x0A: {log("LD A, (BC)          ");} break;
+         case 0x1A: {log("LD A, (DE)          ");} break;
+
+         case 0xFA:
+         {
+            unsigned short operand = *((unsigned short *)(stream + offset));
+            offset += 2;
+            log("LD A, (0x%04X)      ", operand);
+         } break;
+
+         case 0x02: {log("LD (BC), A          ");} break;
+         case 0x12: {log("LD (DE), A          ");} break;
+
+         case 0xEA:
+         {
+            unsigned short operand = *((unsigned short *)(stream + offset));
+            offset += 2;
+            log("LD (0x%04X), A      ", operand);
+         } break;
+
+         case 0xF2: {log("LD A, (FF00 + C)    ");} break;
+         case 0xE2: {log("LD (FF00 + C), A    ");} break;
+
+         case 0xF0: {log("LD A, (FF00 + 0x%02X) ", stream[offset++]);} break;
+         case 0xE0: {log("LD (FF00 + 0x%02X), A ", stream[offset++]);} break;
+
+         case 0x22: {log("LDI (HL), A         ");} break;
+         case 0x32: {log("LDD (HL), A         ");} break;
+         case 0x2A: {log("LDI A, (HL)         ");} break;
+         case 0x3A: {log("LDD A, (HL)         ");} break;
+
+         case 0xF9: {log("LD SP, HL           ");} break;
+
+         case 0xC5: {log("PUSH BC             ");} break;
+         case 0xD5: {log("PUSH DE             ");} break;
+         case 0xE5: {log("PUSH HL             ");} break;
+         case 0xF5: {log("PUSH AF             ");} break;
+
+         case 0xC1: {log("POP BC              ");} break;
+         case 0xD1: {log("POP DE              ");} break;
+         case 0xE1: {log("POP HL              ");} break;
+         case 0xF1: {log("POP AF              ");} break;
+
+
+            // NOTE(law): 16-bit load instructions
+         case 0x08:
+         {
+            unsigned short operand = *((unsigned short *)(stream + offset));
+            offset += 2;
+            log("LD 0x%04X, SP       ", operand);
+         } break;
+
+         case 0x01:
+         {
+            unsigned short operand = *((unsigned short *)(stream + offset));
+            offset += 2;
+            log("LD BC, 0x%04X       ", operand);
+         } break;
+
+         case 0x11:
+         {
+            unsigned short operand = *((unsigned short *)(stream + offset));
+            offset += 2;
+            log("LD DE, 0x%04X       ", operand);
+         } break;
+
+         case 0x21:
+         {
+            unsigned short operand = *((unsigned short *)(stream + offset));
+            offset += 2;
+            log("LD HL, 0x%04X       ", operand);
+         } break;
+
+         case 0x31:
+         {
+            unsigned short operand = *((unsigned short *)(stream + offset));
+            offset += 2;
+            log("LD SP, 0x%04X       ", operand);
+         } break;
+
+
+         // NOTE(law): Rotate and Shift instructions
+         case 0x07: {log("RLCA                ");} break;
+         case 0x17: {log("RLA                 ");} break;
+         case 0x0F: {log("RRCA                ");} break;
+         case 0x1F: {log("RRA                 ");} break;
+
+
+            // NOTE(law): 8-bit Arithmetic/Logic instructions
+         case 0x80: {log("ADD A, B            ");} break;
+         case 0x81: {log("ADD A, C            ");} break;
+         case 0x82: {log("ADD A, D            ");} break;
+         case 0x83: {log("ADD A, E            ");} break;
+         case 0x84: {log("ADD A, H            ");} break;
+         case 0x85: {log("ADD A, L            ");} break;
+         case 0x86: {log("ADD A, (HL)         ");} break;
+         case 0x87: {log("ADD A               ");} break;
+
+         case 0xC6:
+         {
+            unsigned char operand = *(stream + offset++);
+            log("ADD A, 0x%02X         ", operand);
+         } break;
+
+         case 0x88: {log("ADC A, B            ");} break;
+         case 0x89: {log("ADC A, C            ");} break;
+         case 0x8A: {log("ADC A, D            ");} break;
+         case 0x8B: {log("ADC A, E            ");} break;
+         case 0x8C: {log("ADC A, H            ");} break;
+         case 0x8D: {log("ADC A, L            ");} break;
+         case 0x8E: {log("ADC A, (HL)         ");} break;
+         case 0x8F: {log("ADC A, A            ");} break;
+
+         case 0xCE:
+         {
+            unsigned char operand = *(stream + offset++);
+            log("ADC A, 0x%02X         ", operand);
+         } break;
+
+         case 0x90: {log("SUB A, B            ");} break;
+         case 0x91: {log("SUB A, C            ");} break;
+         case 0x92: {log("SUB A, D            ");} break;
+         case 0x93: {log("SUB A, E            ");} break;
+         case 0x94: {log("SUB A, H            ");} break;
+         case 0x95: {log("SUB A, L            ");} break;
+         case 0x96: {log("SUB A, (HL)         ");} break;
+         case 0x97: {log("SUB A               ");} break;
+
+         case 0xD6:
+         {
+            unsigned char operand = *(stream + offset++);
+            log("SUB 0x%02X            ", operand);
+         } break;
+
+         case 0x98: {log("SBC A, B            ");} break;
+         case 0x99: {log("SBC A, C            ");} break;
+         case 0x9A: {log("SBC A, D            ");} break;
+         case 0x9B: {log("SBC A, E            ");} break;
+         case 0x9C: {log("SBC A, H            ");} break;
+         case 0x9D: {log("SBC A, L            ");} break;
+         case 0x9E: {log("SBC A, (HL)         ");} break;
+         case 0x9F: {log("SBC A, A            ");} break;
+
+         case 0xDE: {log("SBC A, 0x%02X         ", stream[offset++]);} break;
+
+         case 0x27: {log("DAA                 ");} break;
+         case 0x2F: {log("CPL                 ");} break;
+
+         case 0xA8: {log("XOR B               ");} break;
+         case 0xA9: {log("XOR C               ");} break;
+         case 0xAA: {log("XOR D               ");} break;
+         case 0xAB: {log("XOR E               ");} break;
+         case 0xAC: {log("XOR H               ");} break;
+         case 0xAD: {log("XOR L               ");} break;
+         case 0xAE: {log("XOR (HL)            ");} break;
+         case 0xAF: {log("XOR A               ");} break;
+
+         case 0xEE: {log("XOR 0x%02X            ", stream[offset++]);} break;
+
+         case 0xB0: {log("OR B                ");} break;
+         case 0xB1: {log("OR C                ");} break;
+         case 0xB2: {log("OR D                ");} break;
+         case 0xB3: {log("OR E                ");} break;
+         case 0xB4: {log("OR H                ");} break;
+         case 0xB5: {log("OR L                ");} break;
+         case 0xB6: {log("OR (HL)             ");} break;
+         case 0xB7: {log("OR A                ");} break;
+
+         case 0xF6: {log("OR 0x%02X             ", stream[offset++]);} break;
+
+         case 0xA0: {log("AND B               ");} break;
+         case 0xA1: {log("AND C               ");} break;
+         case 0xA2: {log("AND D               ");} break;
+         case 0xA3: {log("AND E               ");} break;
+         case 0xA4: {log("AND H               ");} break;
+         case 0xA5: {log("AND L               ");} break;
+         case 0xA6: {log("AND (HL)            ");} break;
+         case 0xA7: {log("AND A               ");} break;
+
+         case 0xE6: {log("AND 0x%02X            ", stream[offset++]);} break;
+
+         case 0xB8: {log("CP B                ");} break;
+         case 0xB9: {log("CP C                ");} break;
+         case 0xBA: {log("CP D                ");} break;
+         case 0xBB: {log("CP E                ");} break;
+         case 0xBC: {log("CP H                ");} break;
+         case 0xBD: {log("CP L                ");} break;
+         case 0xBE: {log("CP (HL)             ");} break;
+         case 0xBF: {log("CP A                ");} break;
+
+         case 0xFE: {log("CP 0x%02X             ", stream[offset++]);} break;
+
+         case 0x04: {log("INC B               ");} break;
+         case 0x0C: {log("INC C               ");} break;
+         case 0x14: {log("INC D               ");} break;
+         case 0x1C: {log("INC E               ");} break;
+         case 0x24: {log("INC H               ");} break;
+         case 0x2C: {log("INC L               ");} break;
+         case 0x34: {log("INC (HL)            ");} break;
+         case 0x3C: {log("INC A               ");} break;
+
+         case 0x05: {log("DEC B               ");} break;
+         case 0x0D: {log("DEC C               ");} break;
+         case 0x15: {log("DEC D               ");} break;
+         case 0x1D: {log("DEC E               ");} break;
+         case 0x25: {log("DEC H               ");} break;
+         case 0x2D: {log("DEC L               ");} break;
+         case 0x35: {log("DEC (HL)            ");} break;
+         case 0x3D: {log("DEC A               ");} break;
+
+
+         // NOTE(law): 16-bit Arithmetic/Logic instructions
+         case 0x09: {log("ADD HL, BC          ");} break;
+         case 0x19: {log("ADD HL, DE          ");} break;
+         case 0x29: {log("ADD HL, HL          ");} break;
+         case 0x39: {log("ADD HL, SP          ");} break;
+
+         case 0x03: {log("INC BC              ");} break;
+         case 0x13: {log("INC DE              ");} break;
+         case 0x23: {log("INC HL              ");} break;
+         case 0x33: {log("INC SP              ");} break;
+
+         case 0x0B: {log("DEC BC              ");} break;
+         case 0x1B: {log("DEC DE              ");} break;
+         case 0x2B: {log("DEC HL              ");} break;
+         case 0x3B: {log("DEC SP              ");} break;
+
+         case 0xE8: {log("ADD SP, 0x%02X        ", stream[offset++]);} break;
+         case 0xF8: {log("LD HL, SP + 0x%02X    ", stream[offset++]);} break;
+
+
+         // NOTE(law): CPU Control instructions
+         case 0x3F: {log("CCF                 ");} break;
+         case 0x37: {log("SCF                 ");} break;
+         case 0x00: {log("NOP                 ");} break;
+         case 0x76: {log("HALT                ");} break;
+         case 0x10: {log("STOP 0x%02X           ", stream[offset++]);} break;
+         case 0xF3: {log("DI                  ");} break;
+         case 0xFB: {log("EI                  ");} break;
+
+
+         // NOTE(law): Jump instructions
+         case 0xE9: {log("JP HL               ");} break;
+
+         case 0xC3:
+         {
+            unsigned short operand = *(unsigned short *)(stream + offset);
+            offset += 2;
+            log("JP 0x%04X           ", operand);
+         } break;
+
+         case 0xC2:
+         {
+            unsigned short operand = *(unsigned short *)(stream + offset);
+            offset += 2;
+            log("JP NZ, 0x%04X       ", operand);
+         } break;
+
+         case 0xCA:
+         {
+            unsigned short operand = *(unsigned short *)(stream + offset);
+            offset += 2;
+            log("JP Z, 0x%04X        ", operand);
+         } break;
+
+         case 0xD2:
+         {
+            unsigned short operand = *(unsigned short *)(stream + offset);
+            offset += 2;
+            log("JP NC, 0x%04X       ", operand);
+         } break;
+
+         case 0xDA:
+         {
+            unsigned short operand = *(unsigned short *)(stream + offset);
+            offset += 2;
+            log("JP C, 0x%04X        ", operand);
+         } break;
+
+         case 0x18: {log("JR PC + 0x%02X        ", stream[offset++]);} break;
+         case 0x20: {log("JR NZ, PC + 0x%02X    ", stream[offset++]);} break;
+         case 0x28: {log("JR Z, PC + 0x%02X     ", stream[offset++]);} break;
+         case 0x30: {log("JR NC, PC + 0x%02X    ", stream[offset++]);} break;
+         case 0x38: {log("JR C, PC + 0x%02X     ", stream[offset++]);} break;
+
+         case 0xC4:
+         {
+            unsigned short operand = *((unsigned short *)(stream + offset));
+            offset += 2;
+            log("CALL NZ, 0x%04X     ", operand);
+         } break;
+
+         case 0xCC:
+         {
+            unsigned short operand = *((unsigned short *)(stream + offset));
+            offset += 2;
+            log("CALL Z, 0x%04X      ", operand);
+         } break;
+
+         case 0xCD:
+         {
+            unsigned short operand = *((unsigned short *)(stream + offset));
+            offset += 2;
+            log("CALL 0x%04X         ", operand);
+         } break;
+
+         case 0xD4:
+         {
+            unsigned short operand = *((unsigned short *)(stream + offset));
+            offset += 2;
+            log("CALL NC, 0x%04X     ", operand);
+         } break;
+
+         case 0xDC:
+         {
+            unsigned short operand = *((unsigned short *)(stream + offset));
+            offset += 2;
+            log("CALL C, 0x%04X      ", operand);
+         } break;
+
+         case 0xC0: {log("RET NZ              ");} break;
+         case 0xC8: {log("RET Z               ");} break;
+         case 0xC9: {log("RET                 ");} break;
+         case 0xD0: {log("RET NC              ");} break;
+         case 0xD8: {log("RET C               ");} break;
+
+         case 0xD9: {log("RETI                ");} break;
+
+         case 0xC7: {log("RST 00H             ");} break;
+         case 0xCF: {log("RST 08H             ");} break;
+         case 0xD7: {log("RST 10H             ");} break;
+         case 0xDF: {log("RST 18H             ");} break;
+         case 0xE7: {log("RST 20H             ");} break;
+         case 0xEF: {log("RST 28H             ");} break;
+         case 0xF7: {log("RST 30H             ");} break;
+         case 0xFF: {log("RST 38H             ");} break;
+
+         case 0xD3: {log("ILLEGAL_D3          ");} break;
+         case 0xDB: {log("ILLEGAL_DB          ");} break;
+         case 0xDD: {log("ILLEGAL_DD          ");} break;
+         case 0xE3: {log("ILLEGAL_E3          ");} break;
+         case 0xE4: {log("ILLEGAL_E4          ");} break;
+         case 0xEB: {log("ILLEGAL_EB          ");} break;
+         case 0xEC: {log("ILLEGAL_EC          ");} break;
+         case 0xED: {log("ILLEGAL_ED          ");} break;
+         case 0xF4: {log("ILLEGAL_F4          ");} break;
+         case 0xFC: {log("ILLEGAL_FC          ");} break;
+         case 0xFD: {log("ILLEGAL_FD          ");} break;
+
+         default: {assert(!"UNHANDLED OPCODE");} break;
+      }
+   }
+
+   log("    ; ");
+   for(unsigned int index = initial_offset; index < offset; ++index)
+   {
+      log("%02X ", stream[index]);
+   }
+
+   log("\n");
+
+   unsigned int result = offset - initial_offset;
+   return(result);
 }
 
 static void
@@ -261,757 +1020,9 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
    // function.
 
    unsigned int start = offset;
-
    while((offset - start) < byte_count)
    {
-      // NOTE(law): Print the address of the current instruction.
-      log("  0x%06x  ", offset);
-
-      unsigned char opcode = stream[offset++];
-      if(opcode == 0xCB)
-      {
-         // NOTE(law): Parse prefix instructions.
-         log("(%02x ", opcode);
-
-         opcode = stream[offset++];
-         log("%02x) ", opcode);
-
-         switch(opcode)
-         {
-            // NOTE(law): Rotate and Shift instructions
-            case 0x00: {log("RLC\tB");} break;
-            case 0x01: {log("RLC\tC");} break;
-            case 0x02: {log("RLC\tD");} break;
-            case 0x03: {log("RLC\tE");} break;
-            case 0x04: {log("RLC\tH");} break;
-            case 0x05: {log("RLC\tL");} break;
-            case 0x06: {log("RLC\t(HL)");} break;
-            case 0x07: {log("RLC\tA");} break;
-
-            case 0x08: {log("RRC\tB");} break;
-            case 0x09: {log("RRC\tC");} break;
-            case 0x0A: {log("RRC\tD");} break;
-            case 0x0B: {log("RRC\tE");} break;
-            case 0x0C: {log("RRC\tH");} break;
-            case 0x0D: {log("RRC\tL");} break;
-            case 0x0E: {log("RRC\t(HL)");} break;
-            case 0x0F: {log("RRC\tA");} break;
-
-            case 0x10: {log("RL\tB");} break;
-            case 0x11: {log("RL\tC");} break;
-            case 0x12: {log("RL\tD");} break;
-            case 0x13: {log("RL\tE");} break;
-            case 0x14: {log("RL\tH");} break;
-            case 0x15: {log("RL\tL");} break;
-            case 0x16: {log("RL\t(HL)");} break;
-            case 0x17: {log("RL\tA");} break;
-
-            case 0x18: {log("RR\tB");} break;
-            case 0x19: {log("RR\tC");} break;
-            case 0x1A: {log("RR\tD");} break;
-            case 0x1B: {log("RR\tE");} break;
-            case 0x1C: {log("RR\tH");} break;
-            case 0x1D: {log("RR\tL");} break;
-            case 0x1E: {log("RR\t(HL)");} break;
-            case 0x1F: {log("RR\tA");} break;
-
-            case 0x20: {log("SLA\tB");} break;
-            case 0x21: {log("SLA\tC");} break;
-            case 0x22: {log("SLA\tD");} break;
-            case 0x23: {log("SLA\tE");} break;
-            case 0x24: {log("SLA\tH");} break;
-            case 0x25: {log("SLA\tL");} break;
-            case 0x26: {log("SLA\t(HL)");} break;
-            case 0x27: {log("SLA\tA");} break;
-
-            case 0x28: {log("SRA\tB");} break;
-            case 0x29: {log("SRA\tC");} break;
-            case 0x2A: {log("SRA\tD");} break;
-            case 0x2B: {log("SRA\tE");} break;
-            case 0x2C: {log("SRA\tH");} break;
-            case 0x2D: {log("SRA\tL");} break;
-            case 0x2E: {log("SRA\t(HL)");} break;
-            case 0x2F: {log("SRA\tA");} break;
-
-            case 0x30: {log("SWAP\tB");} break;
-            case 0x31: {log("SWAP\tC");} break;
-            case 0x32: {log("SWAP\tD");} break;
-            case 0x33: {log("SWAP\tE");} break;
-            case 0x34: {log("SWAP\tH");} break;
-            case 0x35: {log("SWAP\tL");} break;
-            case 0x36: {log("SWAP\t(HL)");} break;
-            case 0x37: {log("SWAP\tA");} break;
-
-            case 0x38: {log("SRL\tB");} break;
-            case 0x39: {log("SRL\tC");} break;
-            case 0x3A: {log("SRL\tD");} break;
-            case 0x3B: {log("SRL\tE");} break;
-            case 0x3C: {log("SRL\tH");} break;
-            case 0x3D: {log("SRL\tL");} break;
-            case 0x3E: {log("SRL\t(HL)");} break;
-            case 0x3F: {log("SRL\tA");} break;
-
-
-            // NOTE(law): Single-bit Operation instructions
-            case 0x40: {log("BIT\t0, B");} break;
-            case 0x41: {log("BIT\t0, C");} break;
-            case 0x42: {log("BIT\t0, D");} break;
-            case 0x43: {log("BIT\t0, E");} break;
-            case 0x44: {log("BIT\t0, H");} break;
-            case 0x45: {log("BIT\t0, L");} break;
-            case 0x46: {log("BIT\t0, (HL)");} break;
-            case 0x47: {log("BIT\t0, A");} break;
-
-            case 0x48: {log("BIT\t1, B");} break;
-            case 0x49: {log("BIT\t1, C");} break;
-            case 0x4A: {log("BIT\t1, D");} break;
-            case 0x4B: {log("BIT\t1, E");} break;
-            case 0x4C: {log("BIT\t1, H");} break;
-            case 0x4D: {log("BIT\t1, L");} break;
-            case 0x4E: {log("BIT\t1, (HL)");} break;
-            case 0x4F: {log("BIT\t1, A");} break;
-
-            case 0x50: {log("BIT\t2, B");} break;
-            case 0x51: {log("BIT\t2, C");} break;
-            case 0x52: {log("BIT\t2, D");} break;
-            case 0x53: {log("BIT\t2, E");} break;
-            case 0x54: {log("BIT\t2, H");} break;
-            case 0x55: {log("BIT\t2, L");} break;
-            case 0x56: {log("BIT\t2, (HL)");} break;
-            case 0x57: {log("BIT\t2, A");} break;
-
-            case 0x58: {log("BIT\t3, B");} break;
-            case 0x59: {log("BIT\t3, C");} break;
-            case 0x5A: {log("BIT\t3, D");} break;
-            case 0x5B: {log("BIT\t3, E");} break;
-            case 0x5C: {log("BIT\t3, H");} break;
-            case 0x5D: {log("BIT\t3, L");} break;
-            case 0x5E: {log("BIT\t3, (HL)");} break;
-            case 0x5F: {log("BIT\t3, A");} break;
-
-            case 0x60: {log("BIT\t4, B");} break;
-            case 0x61: {log("BIT\t4, C");} break;
-            case 0x62: {log("BIT\t4, D");} break;
-            case 0x63: {log("BIT\t4, E");} break;
-            case 0x64: {log("BIT\t4, H");} break;
-            case 0x65: {log("BIT\t4, L");} break;
-            case 0x66: {log("BIT\t4, (HL)");} break;
-            case 0x67: {log("BIT\t4, A");} break;
-
-            case 0x68: {log("BIT\t5, B");} break;
-            case 0x69: {log("BIT\t5, C");} break;
-            case 0x6A: {log("BIT\t5, D");} break;
-            case 0x6B: {log("BIT\t5, E");} break;
-            case 0x6C: {log("BIT\t5, H");} break;
-            case 0x6D: {log("BIT\t5, L");} break;
-            case 0x6E: {log("BIT\t5, (HL)");} break;
-            case 0x6F: {log("BIT\t5, A");} break;
-
-            case 0x70: {log("BIT\t6, B");} break;
-            case 0x71: {log("BIT\t6, C");} break;
-            case 0x72: {log("BIT\t6, D");} break;
-            case 0x73: {log("BIT\t6, E");} break;
-            case 0x74: {log("BIT\t6, H");} break;
-            case 0x75: {log("BIT\t6, L");} break;
-            case 0x76: {log("BIT\t6, (HL)");} break;
-            case 0x77: {log("BIT\t6, A");} break;
-
-            case 0x78: {log("BIT\t7, B");} break;
-            case 0x79: {log("BIT\t7, C");} break;
-            case 0x7A: {log("BIT\t7, D");} break;
-            case 0x7B: {log("BIT\t7, E");} break;
-            case 0x7C: {log("BIT\t7, H");} break;
-            case 0x7D: {log("BIT\t7, L");} break;
-            case 0x7E: {log("BIT\t7, (HL)");} break;
-            case 0x7F: {log("BIT\t7, A");} break;
-
-            case 0x80: {log("RES\t0, B");} break;
-            case 0x81: {log("RES\t0, C");} break;
-            case 0x82: {log("RES\t0, D");} break;
-            case 0x83: {log("RES\t0, E");} break;
-            case 0x84: {log("RES\t0, H");} break;
-            case 0x85: {log("RES\t0, L");} break;
-            case 0x86: {log("RES\t0, (HL)");} break;
-            case 0x87: {log("RES\t0, A");} break;
-
-            case 0x88: {log("RES\t1, B");} break;
-            case 0x89: {log("RES\t1, C");} break;
-            case 0x8A: {log("RES\t1, D");} break;
-            case 0x8B: {log("RES\t1, E");} break;
-            case 0x8C: {log("RES\t1, H");} break;
-            case 0x8D: {log("RES\t1, L");} break;
-            case 0x8E: {log("RES\t1, (HL)");} break;
-            case 0x8F: {log("RES\t1, A");} break;
-
-            case 0x90: {log("RES\t2, B");} break;
-            case 0x91: {log("RES\t2, C");} break;
-            case 0x92: {log("RES\t2, D");} break;
-            case 0x93: {log("RES\t2, E");} break;
-            case 0x94: {log("RES\t2, H");} break;
-            case 0x95: {log("RES\t2, L");} break;
-            case 0x96: {log("RES\t2, (HL)");} break;
-            case 0x97: {log("RES\t2, A");} break;
-
-            case 0x98: {log("RES\t3, B");} break;
-            case 0x99: {log("RES\t3, C");} break;
-            case 0x9A: {log("RES\t3, D");} break;
-            case 0x9B: {log("RES\t3, E");} break;
-            case 0x9C: {log("RES\t3, H");} break;
-            case 0x9D: {log("RES\t3, L");} break;
-            case 0x9E: {log("RES\t3, (HL)");} break;
-            case 0x9F: {log("RES\t3, A");} break;
-
-            case 0xA0: {log("RES\t4, B");} break;
-            case 0xA1: {log("RES\t4, C");} break;
-            case 0xA2: {log("RES\t4, D");} break;
-            case 0xA3: {log("RES\t4, E");} break;
-            case 0xA4: {log("RES\t4, H");} break;
-            case 0xA5: {log("RES\t4, L");} break;
-            case 0xA6: {log("RES\t4, (HL)");} break;
-            case 0xA7: {log("RES\t4, A");} break;
-
-            case 0xA8: {log("RES\t5, B");} break;
-            case 0xA9: {log("RES\t5, C");} break;
-            case 0xAA: {log("RES\t5, D");} break;
-            case 0xAB: {log("RES\t5, E");} break;
-            case 0xAC: {log("RES\t5, H");} break;
-            case 0xAD: {log("RES\t5, L");} break;
-            case 0xAE: {log("RES\t5, (HL)");} break;
-            case 0xAF: {log("RES\t5, A");} break;
-
-            case 0xB0: {log("RES\t6, B");} break;
-            case 0xB1: {log("RES\t6, C");} break;
-            case 0xB2: {log("RES\t6, D");} break;
-            case 0xB3: {log("RES\t6, E");} break;
-            case 0xB4: {log("RES\t6, H");} break;
-            case 0xB5: {log("RES\t6, L");} break;
-            case 0xB6: {log("RES\t6, (HL)");} break;
-            case 0xB7: {log("RES\t6, A");} break;
-
-            case 0xB8: {log("RES\t7, B");} break;
-            case 0xB9: {log("RES\t7, C");} break;
-            case 0xBA: {log("RES\t7, D");} break;
-            case 0xBB: {log("RES\t7, E");} break;
-            case 0xBC: {log("RES\t7, H");} break;
-            case 0xBD: {log("RES\t7, L");} break;
-            case 0xBE: {log("RES\t7, (HL)");} break;
-            case 0xBF: {log("RES\t7, A");} break;
-
-            case 0xC0: {log("SET\t0, B");} break;
-            case 0xC1: {log("SET\t0, C");} break;
-            case 0xC2: {log("SET\t0, D");} break;
-            case 0xC3: {log("SET\t0, E");} break;
-            case 0xC4: {log("SET\t0, H");} break;
-            case 0xC5: {log("SET\t0, L");} break;
-            case 0xC6: {log("SET\t0, (HL)");} break;
-            case 0xC7: {log("SET\t0, A");} break;
-
-            case 0xC8: {log("SET\t1, B");} break;
-            case 0xC9: {log("SET\t1, C");} break;
-            case 0xCA: {log("SET\t1, D");} break;
-            case 0xCB: {log("SET\t1, E");} break;
-            case 0xCC: {log("SET\t1, H");} break;
-            case 0xCD: {log("SET\t1, L");} break;
-            case 0xCE: {log("SET\t1, (HL)");} break;
-            case 0xCF: {log("SET\t1, A");} break;
-
-            case 0xD0: {log("SET\t2, B");} break;
-            case 0xD1: {log("SET\t2, C");} break;
-            case 0xD2: {log("SET\t2, D");} break;
-            case 0xD3: {log("SET\t2, E");} break;
-            case 0xD4: {log("SET\t2, H");} break;
-            case 0xD5: {log("SET\t2, L");} break;
-            case 0xD6: {log("SET\t2, (HL)");} break;
-            case 0xD7: {log("SET\t2, A");} break;
-
-            case 0xD8: {log("SET\t3, B");} break;
-            case 0xD9: {log("SET\t3, C");} break;
-            case 0xDA: {log("SET\t3, D");} break;
-            case 0xDB: {log("SET\t3, E");} break;
-            case 0xDC: {log("SET\t3, H");} break;
-            case 0xDD: {log("SET\t3, L");} break;
-            case 0xDE: {log("SET\t3, (HL)");} break;
-            case 0xDF: {log("SET\t3, A");} break;
-
-            case 0xE0: {log("SET\t4, B");} break;
-            case 0xE1: {log("SET\t4, C");} break;
-            case 0xE2: {log("SET\t4, D");} break;
-            case 0xE3: {log("SET\t4, E");} break;
-            case 0xE4: {log("SET\t4, H");} break;
-            case 0xE5: {log("SET\t4, L");} break;
-            case 0xE6: {log("SET\t4, (HL)");} break;
-            case 0xE7: {log("SET\t4, A");} break;
-
-            case 0xE8: {log("SET\t5, B");} break;
-            case 0xE9: {log("SET\t5, C");} break;
-            case 0xEA: {log("SET\t5, D");} break;
-            case 0xEB: {log("SET\t5, E");} break;
-            case 0xEC: {log("SET\t5, H");} break;
-            case 0xED: {log("SET\t5, L");} break;
-            case 0xEE: {log("SET\t5, (HL)");} break;
-            case 0xEF: {log("SET\t5, A");} break;
-
-            case 0xF0: {log("SET\t6, B");} break;
-            case 0xF1: {log("SET\t6, C");} break;
-            case 0xF2: {log("SET\t6, D");} break;
-            case 0xF3: {log("SET\t6, E");} break;
-            case 0xF4: {log("SET\t6, H");} break;
-            case 0xF5: {log("SET\t6, L");} break;
-            case 0xF6: {log("SET\t6, (HL)");} break;
-            case 0xF7: {log("SET\t6, A");} break;
-
-            case 0xF8: {log("SET\t7, B");} break;
-            case 0xF9: {log("SET\t7, C");} break;
-            case 0xFA: {log("SET\t7, D");} break;
-            case 0xFB: {log("SET\t7, E");} break;
-            case 0xFC: {log("SET\t7, H");} break;
-            case 0xFD: {log("SET\t7, L");} break;
-            case 0xFE: {log("SET\t7, (HL)");} break;
-            case 0xFF: {log("SET\t7, A");} break;
-
-            default: {assert(!"UNHANDLED OPCODE");} break;
-         }
-      }
-      else
-      {
-         // NOTE(law): Parse non-prefix instructions.
-         log("(%02x) ", opcode);
-
-         switch(opcode)
-         {
-            // NOTE(law): 8-bit load instructions
-            case 0x40: {log("LD\tB, B");} break;
-            case 0x41: {log("LD\tB, C");} break;
-            case 0x42: {log("LD\tB, D");} break;
-            case 0x43: {log("LD\tB, E");} break;
-            case 0x44: {log("LD\tB, H");} break;
-            case 0x45: {log("LD\tB, L");} break;
-            case 0x46: {log("LD\tB, (HL)");} break;
-            case 0x47: {log("LD\tB, A");} break;
-
-            case 0x48: {log("LD\tC, B");} break;
-            case 0x49: {log("LD\tC, C");} break;
-            case 0x4A: {log("LD\tC, D");} break;
-            case 0x4B: {log("LD\tC, E");} break;
-            case 0x4C: {log("LD\tC, H");} break;
-            case 0x4D: {log("LD\tC, L");} break;
-            case 0x4E: {log("LD\tC, (HL)");} break;
-            case 0x4F: {log("LD\tC, A");} break;
-
-            case 0x50: {log("LD\tD, B");} break;
-            case 0x51: {log("LD\tD, C");} break;
-            case 0x52: {log("LD\tD, D");} break;
-            case 0x53: {log("LD\tD, E");} break;
-            case 0x54: {log("LD\tD, H");} break;
-            case 0x55: {log("LD\tD, L");} break;
-            case 0x56: {log("LD\tD, (HL)");} break;
-            case 0x57: {log("LD\tD, A");} break;
-
-            case 0x58: {log("LD\tE, B");} break;
-            case 0x59: {log("LD\tE, C");} break;
-            case 0x5A: {log("LD\tE, D");} break;
-            case 0x5B: {log("LD\tE, E");} break;
-            case 0x5C: {log("LD\tE, H");} break;
-            case 0x5D: {log("LD\tE, L");} break;
-            case 0x5E: {log("LD\tE, (HL)");} break;
-            case 0x5F: {log("LD\tE, A");} break;
-
-            case 0x60: {log("LD\tH, B");} break;
-            case 0x61: {log("LD\tH, C");} break;
-            case 0x62: {log("LD\tH, D");} break;
-            case 0x63: {log("LD\tH, E");} break;
-            case 0x64: {log("LD\tH, H");} break;
-            case 0x65: {log("LD\tH, L");} break;
-            case 0x66: {log("LD\tH, (HL)");} break;
-            case 0x67: {log("LD\tH, A");} break;
-
-            case 0x68: {log("LD\tL, B");} break;
-            case 0x69: {log("LD\tL, C");} break;
-            case 0x6A: {log("LD\tL, D");} break;
-            case 0x6B: {log("LD\tL, E");} break;
-            case 0x6C: {log("LD\tL, H");} break;
-            case 0x6D: {log("LD\tL, L");} break;
-            case 0x6E: {log("LD\tL, (HL)");} break;
-            case 0x6F: {log("LD\tL, A");} break;
-
-            case 0x70: {log("LD\t(HL), B");} break;
-            case 0x71: {log("LD\t(HL), C");} break;
-            case 0x72: {log("LD\t(HL), D");} break;
-            case 0x73: {log("LD\t(HL), E");} break;
-            case 0x74: {log("LD\t(HL), H");} break;
-            case 0x75: {log("LD\t(HL), L");} break;
-            case 0x77: {log("LD\t(HL), A");} break;
-
-            case 0x78: {log("LD\tA, B");} break;
-            case 0x79: {log("LD\tA, C");} break;
-            case 0x7A: {log("LD\tA, D");} break;
-            case 0x7B: {log("LD\tA, E");} break;
-            case 0x7C: {log("LD\tA, H");} break;
-            case 0x7D: {log("LD\tA, L");} break;
-            case 0x7E: {log("LD\tA, (HL)");} break;
-            case 0x7F: {log("LD\tA, A");} break;
-
-            case 0x06: {log("LD\tB, 0x%02x", stream[offset++]);} break;
-            case 0x0E: {log("LD\tC, 0x%02x", stream[offset++]);} break;
-            case 0x16: {log("LD\tD, 0x%02x", stream[offset++]);} break;
-            case 0x1E: {log("LD\tE, 0x%02x", stream[offset++]);} break;
-            case 0x26: {log("LD\tH, 0x%02x", stream[offset++]);} break;
-            case 0x2E: {log("LD\tL, 0x%02x", stream[offset++]);} break;
-            case 0x36: {log("LD\t(HL), 0x%02x", stream[offset++]);} break;
-            case 0x3E: {log("LD\tA, 0x%02x", stream[offset++]);} break;
-
-            case 0x0A: {log("LD\tA, (BC)");} break;
-            case 0x1A: {log("LD\tA, (DE)");} break;
-
-            case 0xFA:
-            {
-               unsigned short operand = *((unsigned short *)(stream + offset));
-               offset += 2;
-               log("LD\tA, (0x%04x)", operand);
-            } break;
-
-            case 0x02: {log("LD\t(BC), A");} break;
-            case 0x12: {log("LD\t(DE), A");} break;
-
-            case 0xEA:
-            {
-               unsigned short operand = *((unsigned short *)(stream + offset));
-               offset += 2;
-               log("LD\t(0x%04x), A", operand);
-            } break;
-
-            case 0xF2: {log("LDH\tA, (FF00 + C)");} break;
-            case 0xE2: {log("LDH\t(FF00 + C), A");} break;
-
-            case 0xF0: {log("LDH\tA, (FF00 + 0x%02x)", stream[offset++]);} break;
-            case 0xE0: {log("LDH\t(FF00 + 0x%02x), A", stream[offset++]);} break;
-
-            case 0x22: {log("LDI\t(HL), A");} break;
-            case 0x32: {log("LDD\t(HL), A");} break;
-            case 0x2A: {log("LDI\tA, (HL)");} break;
-            case 0x3A: {log("LDD\tA, (HL)");} break;
-
-            case 0xF9: {log("LD\tSP, HL");} break;
-
-            case 0xC5: {log("PUSH\tBC");} break;
-            case 0xD5: {log("PUSH\tDE");} break;
-            case 0xE5: {log("PUSH\tHL");} break;
-            case 0xF5: {log("PUSH\tAF");} break;
-
-            case 0xC1: {log("POP\tBC");} break;
-            case 0xD1: {log("POP\tDE");} break;
-            case 0xE1: {log("POP\tHL");} break;
-            case 0xF1: {log("POP\tAF");} break;
-
-
-            // NOTE(law): 16-bit load instructions
-            case 0x08:
-            {
-               unsigned short operand = *((unsigned short *)(stream + offset));
-               offset += 2;
-               log("LD\t0x%04x, SP", operand);
-            } break;
-
-            case 0x01:
-            {
-               unsigned short operand = *((unsigned short *)(stream + offset));
-               offset += 2;
-               log("LD\tBC, 0x%04x", operand);
-            } break;
-
-            case 0x11:
-            {
-               unsigned short operand = *((unsigned short *)(stream + offset));
-               offset += 2;
-               log("LD\tDE, 0x%04x", operand);
-            } break;
-
-            case 0x21:
-            {
-               unsigned short operand = *((unsigned short *)(stream + offset));
-               offset += 2;
-               log("LD\tHL, 0x%04x", operand);
-            } break;
-
-            case 0x31:
-            {
-               unsigned short operand = *((unsigned short *)(stream + offset));
-               offset += 2;
-               log("LD\tSP, 0x%04x", operand);
-            } break;
-
-
-            // NOTE(law): Rotate and Shift instructions
-            case 0x07: {log("RLCA");} break;
-            case 0x17: {log("RLA");} break;
-            case 0x0F: {log("RRCA");} break;
-            case 0x1F: {log("RRA");} break;
-
-
-            // NOTE(law): 8-bit Arithmetic/Logic instructions
-            case 0x80: {log("ADD\tA, B");} break;
-            case 0x81: {log("ADD\tA, C");} break;
-            case 0x82: {log("ADD\tA, D");} break;
-            case 0x83: {log("ADD\tA, E");} break;
-            case 0x84: {log("ADD\tA, H");} break;
-            case 0x85: {log("ADD\tA, L");} break;
-            case 0x86: {log("ADD\tA, (HL)");} break;
-            case 0x87: {log("ADD\tA");} break;
-
-            case 0xC6:
-            {
-               unsigned char operand = *(stream + offset++);
-               log("ADD\tA, 0x%02x", operand);
-            } break;
-
-            case 0x88: {log("ADC\tA, B");} break;
-            case 0x89: {log("ADC\tA, C");} break;
-            case 0x8A: {log("ADC\tA, D");} break;
-            case 0x8B: {log("ADC\tA, E");} break;
-            case 0x8C: {log("ADC\tA, H");} break;
-            case 0x8D: {log("ADC\tA, L");} break;
-            case 0x8E: {log("ADC\tA, (HL)");} break;
-            case 0x8F: {log("ADC\tA, A");} break;
-
-            case 0xCE:
-            {
-               unsigned char operand = *(stream + offset++);
-               log("ADC\tA, 0x%02x", operand);
-            } break;
-
-            case 0x90: {log("SUB\tA, B");} break;
-            case 0x91: {log("SUB\tA, C");} break;
-            case 0x92: {log("SUB\tA, D");} break;
-            case 0x93: {log("SUB\tA, E");} break;
-            case 0x94: {log("SUB\tA, H");} break;
-            case 0x95: {log("SUB\tA, L");} break;
-            case 0x96: {log("SUB\tA, (HL)");} break;
-            case 0x97: {log("SUB\tA");} break;
-
-            case 0xD6:
-            {
-               unsigned char operand = *(stream + offset++);
-               log("SUB\t0x%02x", operand);
-            } break;
-
-            case 0x98: {log("SBC\tA, B");} break;
-            case 0x99: {log("SBC\tA, C");} break;
-            case 0x9A: {log("SBC\tA, D");} break;
-            case 0x9B: {log("SBC\tA, E");} break;
-            case 0x9C: {log("SBC\tA, H");} break;
-            case 0x9D: {log("SBC\tA, L");} break;
-            case 0x9E: {log("SBC\tA, (HL)");} break;
-            case 0x9F: {log("SBC\tA, A");} break;
-
-            case 0xDE: {log("SBC\tA, 0x%02x", stream[offset++]);} break;
-
-            case 0x27: {log("DAA");} break;
-            case 0x2F: {log("CPL");} break;
-
-            case 0xA8: {log("XOR\tB");} break;
-            case 0xA9: {log("XOR\tC");} break;
-            case 0xAA: {log("XOR\tD");} break;
-            case 0xAB: {log("XOR\tE");} break;
-            case 0xAC: {log("XOR\tH");} break;
-            case 0xAD: {log("XOR\tL");} break;
-            case 0xAE: {log("XOR\t(HL)");} break;
-            case 0xAF: {log("XOR\tA");} break;
-
-            case 0xEE: {log("XOR\t0x%02x", stream[offset++]);} break;
-
-            case 0xB0: {log("OR\tB");} break;
-            case 0xB1: {log("OR\tC");} break;
-            case 0xB2: {log("OR\tD");} break;
-            case 0xB3: {log("OR\tE");} break;
-            case 0xB4: {log("OR\tH");} break;
-            case 0xB5: {log("OR\tL");} break;
-            case 0xB6: {log("OR\t(HL)");} break;
-            case 0xB7: {log("OR\tA");} break;
-
-            case 0xF6: {log("OR\t0x%02x", stream[offset++]);} break;
-
-            case 0xA0: {log("AND\tB");} break;
-            case 0xA1: {log("AND\tC");} break;
-            case 0xA2: {log("AND\tD");} break;
-            case 0xA3: {log("AND\tE");} break;
-            case 0xA4: {log("AND\tH");} break;
-            case 0xA5: {log("AND\tL");} break;
-            case 0xA6: {log("AND\t(HL)");} break;
-            case 0xA7: {log("AND\tA");} break;
-
-            case 0xE6: {log("AND\t0x%02x", stream[offset++]);} break;
-
-            case 0xB8: {log("CP\tB");} break;
-            case 0xB9: {log("CP\tC");} break;
-            case 0xBA: {log("CP\tD");} break;
-            case 0xBB: {log("CP\tE");} break;
-            case 0xBC: {log("CP\tH");} break;
-            case 0xBD: {log("CP\tL");} break;
-            case 0xBE: {log("CP\t(HL)");} break;
-            case 0xBF: {log("CP\tA");} break;
-
-            case 0xFE: {log("CP\t0x%02x", stream[offset++]);} break;
-
-            case 0x04: {log("INC\tB");} break;
-            case 0x0C: {log("INC\tC");} break;
-            case 0x14: {log("INC\tD");} break;
-            case 0x1C: {log("INC\tE");} break;
-            case 0x24: {log("INC\tH");} break;
-            case 0x2C: {log("INC\tL");} break;
-            case 0x34: {log("INC\t(HL)");} break;
-            case 0x3C: {log("INC\tA");} break;
-
-            case 0x05: {log("DEC\tB");} break;
-            case 0x0D: {log("DEC\tC");} break;
-            case 0x15: {log("DEC\tD");} break;
-            case 0x1D: {log("DEC\tE");} break;
-            case 0x25: {log("DEC\tH");} break;
-            case 0x2D: {log("DEC\tL");} break;
-            case 0x35: {log("DEC\t(HL)");} break;
-            case 0x3D: {log("DEC\tA");} break;
-
-            // NOTE(law): 16-bit Arithmetic/Logic instructions
-            case 0x09: {log("ADD\tHL, BC");} break;
-            case 0x19: {log("ADD\tHL, DE");} break;
-            case 0x29: {log("ADD\tHL, HL");} break;
-            case 0x39: {log("ADD\tHL, SP");} break;
-
-            case 0x03: {log("INC\tBC");} break;
-            case 0x13: {log("INC\tDE");} break;
-            case 0x23: {log("INC\tHL");} break;
-            case 0x33: {log("INC\tSP");} break;
-
-            case 0x0B: {log("DEC\tBC");} break;
-            case 0x1B: {log("DEC\tDE");} break;
-            case 0x2B: {log("DEC\tHL");} break;
-            case 0x3B: {log("DEC\tSP");} break;
-
-            case 0xE8: {log("ADD\tSP, 0x%02x", stream[offset++]);} break;
-            case 0xF8: {log("LD\tHL, SP + 0x%02x", stream[offset++]);} break;
-
-            // NOTE(law): CPU Control instructions
-            case 0x3F: {log("CCF");} break;
-            case 0x37: {log("SCF");} break;
-            case 0x00: {log("NOP");} break;
-            case 0x76: {log("HALT");} break;
-            case 0x10: {log("STOP\t0x%02x", stream[offset++]);} break;
-            case 0xF3: {log("DI");} break;
-            case 0xFB: {log("EI");} break;
-
-
-            // NOTE(law): Jump instructions
-            case 0xE9: {log("JP\tHL");} break;
-
-            case 0xC3:
-            {
-               unsigned short operand = *(unsigned short *)(stream + offset);
-               offset += 2;
-               log("JP\t0x%04x", operand);
-            } break;
-
-            case 0xC2:
-            {
-               unsigned short operand = *(unsigned short *)(stream + offset);
-               offset += 2;
-               log("JP\tNZ, 0x%04x", operand);
-            } break;
-
-            case 0xCA:
-            {
-               unsigned short operand = *(unsigned short *)(stream + offset);
-               offset += 2;
-               log("JP\tZ, 0x%04x", operand);
-            } break;
-
-            case 0xD2:
-            {
-               unsigned short operand = *(unsigned short *)(stream + offset);
-               offset += 2;
-               log("JP\tNC, 0x%04x", operand);
-            } break;
-
-            case 0xDA:
-            {
-               unsigned short operand = *(unsigned short *)(stream + offset);
-               offset += 2;
-               log("JP\tC, 0x%04x", operand);
-            } break;
-
-            case 0x18: {log("JR\tPC + 0x%02x", stream[offset++]);} break;
-            case 0x20: {log("JR\tNZ, PC + 0x%02x", stream[offset++]);} break;
-            case 0x28: {log("JR\tZ, PC + 0x%02x", stream[offset++]);} break;
-            case 0x30: {log("JR\tNC, PC + 0x%02x", stream[offset++]);} break;
-            case 0x38: {log("JR\tC, PC + 0x%02x", stream[offset++]);} break;
-
-            case 0xC4:
-            {
-               unsigned short operand = *((unsigned short *)(stream + offset));
-               offset += 2;
-               log("CALL\tNZ, 0x%04x", operand);
-            } break;
-
-            case 0xCC:
-            {
-               unsigned short operand = *((unsigned short *)(stream + offset));
-               offset += 2;
-               log("CALL\tZ, 0x%04x", operand);
-            } break;
-
-            case 0xCD:
-            {
-               unsigned short operand = *((unsigned short *)(stream + offset));
-               offset += 2;
-               log("CALL\t0x%04x", operand);
-            } break;
-
-            case 0xD4:
-            {
-               unsigned short operand = *((unsigned short *)(stream + offset));
-               offset += 2;
-               log("CALL\tNC, 0x%04x", operand);
-            } break;
-
-            case 0xDC:
-            {
-               unsigned short operand = *((unsigned short *)(stream + offset));
-               offset += 2;
-               log("CALL\tC, 0x%04x", operand);
-            } break;
-
-            case 0xC0: {log("RET\tNZ");} break;
-            case 0xC8: {log("RET\tZ");} break;
-            case 0xC9: {log("RET");} break;
-            case 0xD0: {log("RET\tNC");} break;
-            case 0xD8: {log("RET\tC");} break;
-
-            case 0xD9: {log("RETI");} break;
-
-            case 0xC7: {log("RST\t00H");} break;
-            case 0xCF: {log("RST\t08H");} break;
-            case 0xD7: {log("RST\t10H");} break;
-            case 0xDF: {log("RST\t18H");} break;
-            case 0xE7: {log("RST\t20H");} break;
-            case 0xEF: {log("RST\t28H");} break;
-            case 0xF7: {log("RST\t30H");} break;
-            case 0xFF: {log("RST\t38H");} break;
-
-            case 0xD3: {log("ILLEGAL_D3");} break;
-            case 0xDB: {log("ILLEGAL_DB");} break;
-            case 0xDD: {log("ILLEGAL_DD");} break;
-            case 0xE3: {log("ILLEGAL_E3");} break;
-            case 0xE4: {log("ILLEGAL_E4");} break;
-            case 0xEB: {log("ILLEGAL_EB");} break;
-            case 0xEC: {log("ILLEGAL_EC");} break;
-            case 0xED: {log("ILLEGAL_ED");} break;
-            case 0xF4: {log("ILLEGAL_F4");} break;
-            case 0xFC: {log("ILLEGAL_FC");} break;
-            case 0xFD: {log("ILLEGAL_FD");} break;
-
-            default: {assert(!"UNHANDLED OPCODE");} break;
-         }
-      }
-
-      log("\n");
+      offset += disassemble_instruction(stream, offset);
    }
 }
 
@@ -1750,6 +1761,8 @@ srl(unsigned char *value)
 static void
 fetch_and_execute(unsigned char *stream)
 {
+   disassemble_instruction(stream, register_pc);
+
    unsigned char opcode = stream[register_pc++];
 
    if(opcode == 0xCB)
@@ -2564,7 +2577,7 @@ fetch_and_execute(unsigned char *stream)
 
          default:
          {
-            log("UNHANDLED OPCODE %x\n", opcode);
+            log("UNHANDLED OPCODE %X\n", opcode);
             assert(0);
          } break;
       }
