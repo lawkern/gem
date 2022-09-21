@@ -551,31 +551,34 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 {
    InitCommonControls();
 
-   WNDCLASSA window_class = {0};
+   WNDCLASSEXA window_class = {0};
+   window_class.cbSize = sizeof(window_class);
    window_class.style = CS_HREDRAW|CS_VREDRAW;
    window_class.lpfnWndProc = win32_window_callback;
    window_class.hInstance = instance;
-   window_class.hIcon = LoadIcon(0, IDI_APPLICATION);
+   window_class.hIcon = LoadIcon(instance, MAKEINTRESOURCE(WIN32_ICON));
+   window_class.hIconSm = LoadImage(instance, MAKEINTRESOURCE(WIN32_ICON), IMAGE_ICON, 16, 16, 0);
    window_class.hCursor = LoadCursorA(0, IDC_ARROW);
    window_class.lpszClassName = "Game_Boy_Emulator_GEM";
 
-   if(!RegisterClassA(&window_class))
+   if(!RegisterClassExA(&window_class))
    {
       log("ERROR: Failed to register a window class.\n");
       return(1);
    }
 
-   HWND window = CreateWindowA(window_class.lpszClassName,
-                               "Game Boy Emulator (GEM)",
-                               WS_OVERLAPPEDWINDOW,
-                               CW_USEDEFAULT,
-                               CW_USEDEFAULT,
-                               CW_USEDEFAULT,
-                               CW_USEDEFAULT,
-                               0,
-                               0,
-                               instance,
-                               0);
+   HWND window = CreateWindowExA(0,
+                                 window_class.lpszClassName,
+                                 "Game Boy Emulator (GEM)",
+                                 WS_OVERLAPPEDWINDOW,
+                                 CW_USEDEFAULT,
+                                 CW_USEDEFAULT,
+                                 CW_USEDEFAULT,
+                                 CW_USEDEFAULT,
+                                 0,
+                                 0,
+                                 instance,
+                                 0);
 
    if(!window)
    {
