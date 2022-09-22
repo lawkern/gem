@@ -23,6 +23,9 @@ static Win32_File win32_global_rom;
 static unsigned char *win32_global_memory_map;
 static LARGE_INTEGER win32_global_counts_per_second;
 
+static BITMAPINFO win32_global_bitmap_info;
+static Platform_Bitmap win32_global_bitmap;
+
 static HMENU win32_global_menu;
 static HWND win32_global_status_bar;
 static WINDOWPLACEMENT win32_global_previous_window_placement =
@@ -186,6 +189,12 @@ win32_load_rom(HWND window, char *rom_path)
    win32_global_rom = rom;
    win32_global_memory_map = win32_create_memory_map(rom.memory);
 
+   // TODO(law): This value refers the current horizontal line, and a value of
+   // 0x90 represents the beginning of a VBlank period. Since the boot ROM waits
+   // on VBlank for the logo processing, just hard code it until rendering is
+   // actually handled.
+   win32_global_memory_map[0xFF44] = 0x90;
+
    HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
    SendMessage(status_bar, WM_SETTEXT, 0, (LPARAM)rom_path);
 }
@@ -320,16 +329,19 @@ win32_display_bitmap(HWND window, HDC device_context)
    float client_aspect_ratio = (float)client_width / (float)client_height;
    float target_aspect_ratio = (float)GEM_BASE_RESOLUTION_WIDTH / (float)GEM_BASE_RESOLUTION_HEIGHT;
 
-   PatBlt(device_context, 0, 0, client_width, client_height, WHITENESS);
+   int target_width  = client_width;
+   int target_height = client_height;
+   int gutter_width  = 0;
+   int gutter_height = 0;
 
    if(client_aspect_ratio > target_aspect_ratio)
    {
       // NOTE(law): The window is too wide, fill in the left and right sides
       // with black gutters.
 
-      int target_width = (int)(target_aspect_ratio * (float)client_height);
-      int target_height = client_height;
-      int gutter_width = (client_width - target_width) / 2;
+      target_width = (int)(target_aspect_ratio * (float)client_height);
+      target_height = client_height;
+      gutter_width = (client_width - target_width) / 2;
 
       PatBlt(device_context, 0, 0, gutter_width, target_height, BLACKNESS);
       PatBlt(device_context, client_width - gutter_width, 0, gutter_width, target_height, BLACKNESS);
@@ -339,13 +351,21 @@ win32_display_bitmap(HWND window, HDC device_context)
       // NOTE(law): The window is too tall, fill in the top and bottom with
       // black gutters.
 
-      int target_width = client_width;
-      int target_height = (int)((1.0f / target_aspect_ratio) * (float)client_width);
-      int gutter_height = (client_height - target_height) / 2;
+      target_width = client_width;
+      target_height = (int)((1.0f / target_aspect_ratio) * (float)client_width);
+      gutter_height = (client_height - target_height) / 2;
 
       PatBlt(device_context, 0, 0, target_width, gutter_height, BLACKNESS);
       PatBlt(device_context, 0, client_height - gutter_height, target_width, gutter_height, BLACKNESS);
    }
+
+   StretchDIBits(device_context,
+                 gutter_width, gutter_height, target_width, target_height, // Destination
+                 0, 0, win32_global_bitmap.width, win32_global_bitmap.height, // Source
+                 win32_global_bitmap.memory,
+                 &win32_global_bitmap_info,
+                 DIB_RGB_COLORS,
+                 SRCCOPY);
 }
 
 LRESULT
@@ -601,6 +621,27 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       return(1);
    }
 
+   // NOTE(law) Set up the rendering bitmap.
+   Platform_Bitmap bitmap = {GEM_BASE_RESOLUTION_WIDTH, GEM_BASE_RESOLUTION_HEIGHT};
+
+   SIZE_T bytes_per_pixel = sizeof(unsigned int);
+   SIZE_T bitmap_size = bitmap.width * bitmap.height * bytes_per_pixel;
+   bitmap.memory = VirtualAlloc(0, bitmap_size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+
+   BITMAPINFOHEADER bitmap_header = {0};
+   bitmap_header.biSize = sizeof(BITMAPINFOHEADER);
+   bitmap_header.biWidth = bitmap.width;
+   bitmap_header.biHeight = -bitmap.height; // NOTE(law): Negative will indicate a top-down bitmap.
+   bitmap_header.biPlanes = 1;
+   bitmap_header.biBitCount = 32;
+   bitmap_header.biCompression = BI_RGB;
+
+   BITMAPINFO bitmap_info = {bitmap_header};
+
+   win32_global_bitmap = bitmap;
+   win32_global_bitmap_info = bitmap_info;
+
+   // NOTE(law): Display the created window.
    ShowWindow(window, show_command);
    UpdateWindow(window);
 
@@ -614,12 +655,6 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    // NOTE(law): Attempt to load a ROM in case a path to one was provided as the
    // command line argument.
    win32_load_rom(window, command_line);
-
-   // TODO(law): This value refers the current horizontal line, and a value of
-   // 0x90 represents the beginning of a VBlank period. Since the boot ROM waits
-   // on VBlank for the logo processing, just hard code it until rendering is
-   // actually handled.
-   win32_global_memory_map[0xFF44] = 0x90;
 
    LARGE_INTEGER frame_start_count;
    QueryPerformanceCounter(&frame_start_count);
@@ -643,6 +678,21 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
          fetch_and_execute(win32_global_memory_map);
       }
 
+      // NOTE(law): Draw pixels into bitmap.
+      for(unsigned int y = 0; y < bitmap.height; ++y)
+      {
+         for(unsigned int x = 0; x < bitmap.width; ++x)
+         {
+            bitmap.memory[(bitmap.width * y) + x] = 0xFFE0F8D0;
+         }
+      }
+
+      // NOTE(law): Blit bitmap to screen.
+      HDC device_context = GetDC(window);
+      win32_display_bitmap(window, device_context);
+      ReleaseDC(window, device_context);
+
+      // NOTE(law): Calculate elapsed frame time.
       LARGE_INTEGER frame_end_count;
       QueryPerformanceCounter(&frame_end_count);
 

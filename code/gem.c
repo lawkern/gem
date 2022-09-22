@@ -10,6 +10,13 @@
 #define GEM_BASE_RESOLUTION_WIDTH 160
 #define GEM_BASE_RESOLUTION_HEIGHT 144
 
+typedef struct
+{
+   unsigned int width;
+   unsigned int height;
+   unsigned int *memory;
+} Platform_Bitmap;
+
 #define PLATFORM_LOG(name) void name(char *format, ...)
 static PLATFORM_LOG(platform_log);
 
