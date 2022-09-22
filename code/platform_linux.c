@@ -9,21 +9,42 @@
 
 #include "gem.c"
 
+typedef struct
+{
+   size_t size;
+   unsigned char *memory;
+} Linux_File;
+
 static
-PLATFORM_FREE_FILE(free_file)
+PLATFORM_LOG(platform_log)
+{
+   char message[1024];
+
+   va_list arguments;
+   va_start(arguments, format);
+   {
+      vsnprintf(message, sizeof(message), format, arguments);
+   }
+   va_end(arguments);
+
+   printf("%s", message);
+}
+
+static void
+linux_free_file(Linux_File *file)
 {
    free(file->memory);
    file->size = 0;
    file->memory = 0;
 }
 
-static
-PLATFORM_LOAD_FILE(load_file)
+static Linux_File
+linux_load_file(char *file_path)
 {
    // TODO(law): Better file I/O once file access is needed anywhere besides
    // program startup.
 
-   Platform_File result = {0};
+   Linux_File result = {0};
 
    struct stat file_information;
    if(stat(file_path, &file_information) == -1)
@@ -57,21 +78,6 @@ PLATFORM_LOAD_FILE(load_file)
    return(result);
 }
 
-static
-PLATFORM_LOG(log)
-{
-   char message[1024];
-
-   va_list arguments;
-   va_start(arguments, format);
-   {
-      vsnprintf(message, sizeof(message), format, arguments);
-   }
-   va_end(arguments);
-
-   printf(message);
-}
-
 int
 main(int argument_count, char **arguments)
 {
@@ -102,7 +108,7 @@ main(int argument_count, char **arguments)
    char *rom_path = arguments[argument_count - 1];
    printf("Loading ROM at \"%s\"...\n", rom_path);
 
-   Platform_File rom = load_file(rom_path);
+   Linux_File rom = linux_load_file(rom_path);
    if(rom.size == 0)
    {
       return(1);
@@ -114,12 +120,12 @@ main(int argument_count, char **arguments)
       return(1);
    }
 
-   Cartridge_Header *header = get_cartridge_header(rom.memory);
    if(output_header)
    {
-      dump_cartridge_header(header);
+      dump_cartridge_header(rom.memory);
    }
 
+   Cartridge_Header *header = get_cartridge_header(rom.memory);
    if(output_disassembly)
    {
       printf("Parsing entry_point...\n");

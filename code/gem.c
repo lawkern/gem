@@ -10,19 +10,8 @@
 #define GEM_BASE_RESOLUTION_WIDTH 160
 #define GEM_BASE_RESOLUTION_HEIGHT 144
 
-typedef struct
-{
-   size_t size;
-   unsigned char *memory;
-} Platform_File;
-
-#define PLATFORM_FREE_FILE(name) void name(Platform_File *file)
-#define PLATFORM_LOAD_FILE(name) Platform_File name(char *file_path)
-#define PLATFORM_LOG(name) void log(char *format, ...)
-
-static PLATFORM_FREE_FILE(free_file);
-static PLATFORM_LOAD_FILE(load_file);
-static PLATFORM_LOG(log);
+#define PLATFORM_LOG(name) void name(char *format, ...)
+static PLATFORM_LOG(platform_log);
 
 #define ARRAY_LENGTH(array) (sizeof(array) / sizeof((array)[0]))
 
@@ -111,7 +100,7 @@ validate_cartridge_header(unsigned char *rom_memory, size_t rom_size)
    };
 
    // NOTE(law): Confirm that the cartridge stored the Game Boy logo correctly.
-   log("Verifying logo...\n");
+   platform_log("Verifying logo...\n");
 
    assert(ARRAY_LENGTH(logo) == ARRAY_LENGTH(header->logo));
    for(unsigned int byte_index = 0; byte_index < ARRAY_LENGTH(logo); ++byte_index)
@@ -121,14 +110,14 @@ validate_cartridge_header(unsigned char *rom_memory, size_t rom_size)
 
       if(logo[byte_index] != header->logo[byte_index])
       {
-         log("ERROR: Logo mismatch at byte index %d ", byte_index);
-         log("(header: 0x%02X, expected: 0x%02X)\n", header->logo[byte_index], logo[byte_index]);
+         platform_log("ERROR: Logo mismatch at byte index %d ", byte_index);
+         platform_log("(header: 0x%02X, expected: 0x%02X)\n", header->logo[byte_index], logo[byte_index]);
 
          return(false);
       }
    }
 
-   log("Verifying checksums...\n");
+   platform_log("Verifying checksums...\n");
 
    unsigned char header_checksum = 0;
    for(unsigned short byte_offset = 0x0134; byte_offset <= 0x014C; ++byte_offset)
@@ -138,8 +127,8 @@ validate_cartridge_header(unsigned char *rom_memory, size_t rom_size)
 
    if(header_checksum != header->header_checksum)
    {
-      log("ERROR: Computed header checksum did not match value in header. ");
-      log("(header: 0x%02X, computed: 0x%02X.\n", header_checksum, header->header_checksum);
+      platform_log("ERROR: Computed header checksum did not match value in header. ");
+      platform_log("(header: 0x%02X, computed: 0x%02X.\n", header_checksum, header->header_checksum);
 
       return(false);
    }
@@ -159,11 +148,11 @@ validate_cartridge_header(unsigned char *rom_memory, size_t rom_size)
    {
       // NOTE(law): The global checksum is not verified by the majority of games
       // (Pokemon Stadium's GB Tower emulator is an exception).
-      log("WARNING: Computed global checksum did not match value in header. ");
-      log("(header: 0x%04X, computed: %0x04X)\n", header->global_checksum, global_checksum);
+      platform_log("WARNING: Computed global checksum did not match value in header. ");
+      platform_log("(header: 0x%04X, computed: %0x04X)\n", header->global_checksum, global_checksum);
    }
 
-   log("SUCCESS: The cartridge header was validated.\n");
+   platform_log("SUCCESS: The cartridge header was validated.\n");
 
    return(true);
 }
@@ -173,12 +162,12 @@ void dump_cartridge_header(unsigned char *stream)
 {
    Cartridge_Header *header = get_cartridge_header(stream);
 
-   log("CARTRIDGE HEADER:\n");
+   platform_log("CARTRIDGE HEADER:\n");
 
-   log("  ENTRY POINT: 0x%08x\n", header->entry_point);
+   platform_log("  ENTRY POINT: 0x%08x\n", header->entry_point);
 
-   log("  TITLE: %s\n", header->title);
-   log("  SGB FLAG: 0x%02X\n", header->sgb_flag);
+   platform_log("  TITLE: %s\n", header->title);
+   platform_log("  SGB FLAG: 0x%02X\n", header->sgb_flag);
 
    static char *cartridge_types[] =
    {
@@ -213,8 +202,8 @@ void dump_cartridge_header(unsigned char *stream)
    };
 
    // assert(header->cartridge_type < ARRAY_LENGTH(cartridge_types));
-   log("  CARTRIDGE TYPE: %#x (%s)\n", header->cartridge_type, cartridge_types[header->cartridge_type]);
-   log("  ROM SIZE: %u KiB\n", 32 * (1 << header->rom_size));
+   platform_log("  CARTRIDGE TYPE: %#x (%s)\n", header->cartridge_type, cartridge_types[header->cartridge_type]);
+   platform_log("  ROM SIZE: %u KiB\n", 32 * (1 << header->rom_size));
 
    static char *sram_sizes[] =
    {
@@ -227,7 +216,7 @@ void dump_cartridge_header(unsigned char *stream)
    };
 
    assert(header->ram_size < ARRAY_LENGTH(sram_sizes));
-   log("  RAM SIZE: %s\n", sram_sizes[header->ram_size]);
+   platform_log("  RAM SIZE: %s\n", sram_sizes[header->ram_size]);
 
    static char *destination_codes[] =
    {
@@ -236,22 +225,22 @@ void dump_cartridge_header(unsigned char *stream)
    };
 
    assert(header->destination_code < ARRAY_LENGTH(destination_codes));
-   log("  DESTINATION CODE: %#x (%s)\n", header->destination_code, destination_codes[header->destination_code]);
+   platform_log("  DESTINATION CODE: %#x (%s)\n", header->destination_code, destination_codes[header->destination_code]);
 
    if(header->old_licensee_code == 0x33)
    {
-      log("  OLD LICENSEE CODE: UNUSED\n");
-      log("  NEW LICENSEE CODE: %.*s\n", 2, header->new_licensee_code);
+      platform_log("  OLD LICENSEE CODE: UNUSED\n");
+      platform_log("  NEW LICENSEE CODE: %.*s\n", 2, header->new_licensee_code);
    }
    else
    {
-      log("  OLD LICENSEE CODE: %#x\n", header->old_licensee_code);
-      log("  NEW LICENSEE CODE: UNUSED\n");
+      platform_log("  OLD LICENSEE CODE: %#x\n", header->old_licensee_code);
+      platform_log("  NEW LICENSEE CODE: UNUSED\n");
    }
 
-   log("  MASK ROM VERSION NUMBER: %#x\n", header->mask_rom_version_number);
-   log("  HEADER CHECKSUM: 0x%02X\n", header->header_checksum);
-   log("  GLOBAL CHECKSUM: 0x%04X\n", header->global_checksum);
+   platform_log("  MASK ROM VERSION NUMBER: %#x\n", header->mask_rom_version_number);
+   platform_log("  HEADER CHECKSUM: 0x%02X\n", header->header_checksum);
+   platform_log("  GLOBAL CHECKSUM: 0x%04X\n", header->global_checksum);
 }
 
 static unsigned int
@@ -260,7 +249,7 @@ disassemble_instruction(unsigned char *stream, unsigned int offset)
    unsigned int initial_offset = offset;
 
    // NOTE(law): Print the address of the current instruction.
-   log("0x%04X  ", offset);
+   platform_log("0x%04X  ", offset);
 
    unsigned char opcode = stream[offset++];
    if(opcode == 0xCB)
@@ -271,295 +260,295 @@ disassemble_instruction(unsigned char *stream, unsigned int offset)
       switch(opcode)
       {
          // NOTE(law): Rotate and Shift instructions
-         case 0x00: {log("RLC B               ");} break;
-         case 0x01: {log("RLC C               ");} break;
-         case 0x02: {log("RLC D               ");} break;
-         case 0x03: {log("RLC E               ");} break;
-         case 0x04: {log("RLC H               ");} break;
-         case 0x05: {log("RLC L               ");} break;
-         case 0x06: {log("RLC (HL)            ");} break;
-         case 0x07: {log("RLC A               ");} break;
+         case 0x00: {platform_log("RLC B               ");} break;
+         case 0x01: {platform_log("RLC C               ");} break;
+         case 0x02: {platform_log("RLC D               ");} break;
+         case 0x03: {platform_log("RLC E               ");} break;
+         case 0x04: {platform_log("RLC H               ");} break;
+         case 0x05: {platform_log("RLC L               ");} break;
+         case 0x06: {platform_log("RLC (HL)            ");} break;
+         case 0x07: {platform_log("RLC A               ");} break;
 
-         case 0x08: {log("RRC B               ");} break;
-         case 0x09: {log("RRC C               ");} break;
-         case 0x0A: {log("RRC D               ");} break;
-         case 0x0B: {log("RRC E               ");} break;
-         case 0x0C: {log("RRC H               ");} break;
-         case 0x0D: {log("RRC L               ");} break;
-         case 0x0E: {log("RRC (HL)            ");} break;
-         case 0x0F: {log("RRC A               ");} break;
+         case 0x08: {platform_log("RRC B               ");} break;
+         case 0x09: {platform_log("RRC C               ");} break;
+         case 0x0A: {platform_log("RRC D               ");} break;
+         case 0x0B: {platform_log("RRC E               ");} break;
+         case 0x0C: {platform_log("RRC H               ");} break;
+         case 0x0D: {platform_log("RRC L               ");} break;
+         case 0x0E: {platform_log("RRC (HL)            ");} break;
+         case 0x0F: {platform_log("RRC A               ");} break;
 
-         case 0x10: {log("RL B                ");} break;
-         case 0x11: {log("RL C                ");} break;
-         case 0x12: {log("RL D                ");} break;
-         case 0x13: {log("RL E                ");} break;
-         case 0x14: {log("RL H                ");} break;
-         case 0x15: {log("RL L                ");} break;
-         case 0x16: {log("RL (HL)             ");} break;
-         case 0x17: {log("RL A                ");} break;
+         case 0x10: {platform_log("RL B                ");} break;
+         case 0x11: {platform_log("RL C                ");} break;
+         case 0x12: {platform_log("RL D                ");} break;
+         case 0x13: {platform_log("RL E                ");} break;
+         case 0x14: {platform_log("RL H                ");} break;
+         case 0x15: {platform_log("RL L                ");} break;
+         case 0x16: {platform_log("RL (HL)             ");} break;
+         case 0x17: {platform_log("RL A                ");} break;
 
-         case 0x18: {log("RR B                ");} break;
-         case 0x19: {log("RR C                ");} break;
-         case 0x1A: {log("RR D                ");} break;
-         case 0x1B: {log("RR E                ");} break;
-         case 0x1C: {log("RR H                ");} break;
-         case 0x1D: {log("RR L                ");} break;
-         case 0x1E: {log("RR (HL)             ");} break;
-         case 0x1F: {log("RR A                ");} break;
+         case 0x18: {platform_log("RR B                ");} break;
+         case 0x19: {platform_log("RR C                ");} break;
+         case 0x1A: {platform_log("RR D                ");} break;
+         case 0x1B: {platform_log("RR E                ");} break;
+         case 0x1C: {platform_log("RR H                ");} break;
+         case 0x1D: {platform_log("RR L                ");} break;
+         case 0x1E: {platform_log("RR (HL)             ");} break;
+         case 0x1F: {platform_log("RR A                ");} break;
 
-         case 0x20: {log("SLA B               ");} break;
-         case 0x21: {log("SLA C               ");} break;
-         case 0x22: {log("SLA D               ");} break;
-         case 0x23: {log("SLA E               ");} break;
-         case 0x24: {log("SLA H               ");} break;
-         case 0x25: {log("SLA L               ");} break;
-         case 0x26: {log("SLA (HL)            ");} break;
-         case 0x27: {log("SLA A               ");} break;
+         case 0x20: {platform_log("SLA B               ");} break;
+         case 0x21: {platform_log("SLA C               ");} break;
+         case 0x22: {platform_log("SLA D               ");} break;
+         case 0x23: {platform_log("SLA E               ");} break;
+         case 0x24: {platform_log("SLA H               ");} break;
+         case 0x25: {platform_log("SLA L               ");} break;
+         case 0x26: {platform_log("SLA (HL)            ");} break;
+         case 0x27: {platform_log("SLA A               ");} break;
 
-         case 0x28: {log("SRA B               ");} break;
-         case 0x29: {log("SRA C               ");} break;
-         case 0x2A: {log("SRA D               ");} break;
-         case 0x2B: {log("SRA E               ");} break;
-         case 0x2C: {log("SRA H               ");} break;
-         case 0x2D: {log("SRA L               ");} break;
-         case 0x2E: {log("SRA (HL)            ");} break;
-         case 0x2F: {log("SRA A               ");} break;
+         case 0x28: {platform_log("SRA B               ");} break;
+         case 0x29: {platform_log("SRA C               ");} break;
+         case 0x2A: {platform_log("SRA D               ");} break;
+         case 0x2B: {platform_log("SRA E               ");} break;
+         case 0x2C: {platform_log("SRA H               ");} break;
+         case 0x2D: {platform_log("SRA L               ");} break;
+         case 0x2E: {platform_log("SRA (HL)            ");} break;
+         case 0x2F: {platform_log("SRA A               ");} break;
 
-         case 0x30: {log("SWAP B              ");} break;
-         case 0x31: {log("SWAP C              ");} break;
-         case 0x32: {log("SWAP D              ");} break;
-         case 0x33: {log("SWAP E              ");} break;
-         case 0x34: {log("SWAP H              ");} break;
-         case 0x35: {log("SWAP L              ");} break;
-         case 0x36: {log("SWAP (HL)           ");} break;
-         case 0x37: {log("SWAP A              ");} break;
+         case 0x30: {platform_log("SWAP B              ");} break;
+         case 0x31: {platform_log("SWAP C              ");} break;
+         case 0x32: {platform_log("SWAP D              ");} break;
+         case 0x33: {platform_log("SWAP E              ");} break;
+         case 0x34: {platform_log("SWAP H              ");} break;
+         case 0x35: {platform_log("SWAP L              ");} break;
+         case 0x36: {platform_log("SWAP (HL)           ");} break;
+         case 0x37: {platform_log("SWAP A              ");} break;
 
-         case 0x38: {log("SRL B               ");} break;
-         case 0x39: {log("SRL C               ");} break;
-         case 0x3A: {log("SRL D               ");} break;
-         case 0x3B: {log("SRL E               ");} break;
-         case 0x3C: {log("SRL H               ");} break;
-         case 0x3D: {log("SRL L               ");} break;
-         case 0x3E: {log("SRL (HL)            ");} break;
-         case 0x3F: {log("SRL A               ");} break;
+         case 0x38: {platform_log("SRL B               ");} break;
+         case 0x39: {platform_log("SRL C               ");} break;
+         case 0x3A: {platform_log("SRL D               ");} break;
+         case 0x3B: {platform_log("SRL E               ");} break;
+         case 0x3C: {platform_log("SRL H               ");} break;
+         case 0x3D: {platform_log("SRL L               ");} break;
+         case 0x3E: {platform_log("SRL (HL)            ");} break;
+         case 0x3F: {platform_log("SRL A               ");} break;
 
 
             // NOTE(law): Single-bit Operation instructions
-         case 0x40: {log("BIT 0, B            ");} break;
-         case 0x41: {log("BIT 0, C            ");} break;
-         case 0x42: {log("BIT 0, D            ");} break;
-         case 0x43: {log("BIT 0, E            ");} break;
-         case 0x44: {log("BIT 0, H            ");} break;
-         case 0x45: {log("BIT 0, L            ");} break;
-         case 0x46: {log("BIT 0, (HL)         ");} break;
-         case 0x47: {log("BIT 0, A            ");} break;
+         case 0x40: {platform_log("BIT 0, B            ");} break;
+         case 0x41: {platform_log("BIT 0, C            ");} break;
+         case 0x42: {platform_log("BIT 0, D            ");} break;
+         case 0x43: {platform_log("BIT 0, E            ");} break;
+         case 0x44: {platform_log("BIT 0, H            ");} break;
+         case 0x45: {platform_log("BIT 0, L            ");} break;
+         case 0x46: {platform_log("BIT 0, (HL)         ");} break;
+         case 0x47: {platform_log("BIT 0, A            ");} break;
 
-         case 0x48: {log("BIT 1, B            ");} break;
-         case 0x49: {log("BIT 1, C            ");} break;
-         case 0x4A: {log("BIT 1, D            ");} break;
-         case 0x4B: {log("BIT 1, E            ");} break;
-         case 0x4C: {log("BIT 1, H            ");} break;
-         case 0x4D: {log("BIT 1, L            ");} break;
-         case 0x4E: {log("BIT 1, (HL)         ");} break;
-         case 0x4F: {log("BIT 1, A            ");} break;
+         case 0x48: {platform_log("BIT 1, B            ");} break;
+         case 0x49: {platform_log("BIT 1, C            ");} break;
+         case 0x4A: {platform_log("BIT 1, D            ");} break;
+         case 0x4B: {platform_log("BIT 1, E            ");} break;
+         case 0x4C: {platform_log("BIT 1, H            ");} break;
+         case 0x4D: {platform_log("BIT 1, L            ");} break;
+         case 0x4E: {platform_log("BIT 1, (HL)         ");} break;
+         case 0x4F: {platform_log("BIT 1, A            ");} break;
 
-         case 0x50: {log("BIT 2, B            ");} break;
-         case 0x51: {log("BIT 2, C            ");} break;
-         case 0x52: {log("BIT 2, D            ");} break;
-         case 0x53: {log("BIT 2, E            ");} break;
-         case 0x54: {log("BIT 2, H            ");} break;
-         case 0x55: {log("BIT 2, L            ");} break;
-         case 0x56: {log("BIT 2, (HL)         ");} break;
-         case 0x57: {log("BIT 2, A            ");} break;
+         case 0x50: {platform_log("BIT 2, B            ");} break;
+         case 0x51: {platform_log("BIT 2, C            ");} break;
+         case 0x52: {platform_log("BIT 2, D            ");} break;
+         case 0x53: {platform_log("BIT 2, E            ");} break;
+         case 0x54: {platform_log("BIT 2, H            ");} break;
+         case 0x55: {platform_log("BIT 2, L            ");} break;
+         case 0x56: {platform_log("BIT 2, (HL)         ");} break;
+         case 0x57: {platform_log("BIT 2, A            ");} break;
 
-         case 0x58: {log("BIT 3, B            ");} break;
-         case 0x59: {log("BIT 3, C            ");} break;
-         case 0x5A: {log("BIT 3, D            ");} break;
-         case 0x5B: {log("BIT 3, E            ");} break;
-         case 0x5C: {log("BIT 3, H            ");} break;
-         case 0x5D: {log("BIT 3, L            ");} break;
-         case 0x5E: {log("BIT 3, (HL)         ");} break;
-         case 0x5F: {log("BIT 3, A            ");} break;
+         case 0x58: {platform_log("BIT 3, B            ");} break;
+         case 0x59: {platform_log("BIT 3, C            ");} break;
+         case 0x5A: {platform_log("BIT 3, D            ");} break;
+         case 0x5B: {platform_log("BIT 3, E            ");} break;
+         case 0x5C: {platform_log("BIT 3, H            ");} break;
+         case 0x5D: {platform_log("BIT 3, L            ");} break;
+         case 0x5E: {platform_log("BIT 3, (HL)         ");} break;
+         case 0x5F: {platform_log("BIT 3, A            ");} break;
 
-         case 0x60: {log("BIT 4, B            ");} break;
-         case 0x61: {log("BIT 4, C            ");} break;
-         case 0x62: {log("BIT 4, D            ");} break;
-         case 0x63: {log("BIT 4, E            ");} break;
-         case 0x64: {log("BIT 4, H            ");} break;
-         case 0x65: {log("BIT 4, L            ");} break;
-         case 0x66: {log("BIT 4, (HL)         ");} break;
-         case 0x67: {log("BIT 4, A            ");} break;
+         case 0x60: {platform_log("BIT 4, B            ");} break;
+         case 0x61: {platform_log("BIT 4, C            ");} break;
+         case 0x62: {platform_log("BIT 4, D            ");} break;
+         case 0x63: {platform_log("BIT 4, E            ");} break;
+         case 0x64: {platform_log("BIT 4, H            ");} break;
+         case 0x65: {platform_log("BIT 4, L            ");} break;
+         case 0x66: {platform_log("BIT 4, (HL)         ");} break;
+         case 0x67: {platform_log("BIT 4, A            ");} break;
 
-         case 0x68: {log("BIT 5, B            ");} break;
-         case 0x69: {log("BIT 5, C            ");} break;
-         case 0x6A: {log("BIT 5, D            ");} break;
-         case 0x6B: {log("BIT 5, E            ");} break;
-         case 0x6C: {log("BIT 5, H            ");} break;
-         case 0x6D: {log("BIT 5, L            ");} break;
-         case 0x6E: {log("BIT 5, (HL)         ");} break;
-         case 0x6F: {log("BIT 5, A            ");} break;
+         case 0x68: {platform_log("BIT 5, B            ");} break;
+         case 0x69: {platform_log("BIT 5, C            ");} break;
+         case 0x6A: {platform_log("BIT 5, D            ");} break;
+         case 0x6B: {platform_log("BIT 5, E            ");} break;
+         case 0x6C: {platform_log("BIT 5, H            ");} break;
+         case 0x6D: {platform_log("BIT 5, L            ");} break;
+         case 0x6E: {platform_log("BIT 5, (HL)         ");} break;
+         case 0x6F: {platform_log("BIT 5, A            ");} break;
 
-         case 0x70: {log("BIT 6, B            ");} break;
-         case 0x71: {log("BIT 6, C            ");} break;
-         case 0x72: {log("BIT 6, D            ");} break;
-         case 0x73: {log("BIT 6, E            ");} break;
-         case 0x74: {log("BIT 6, H            ");} break;
-         case 0x75: {log("BIT 6, L            ");} break;
-         case 0x76: {log("BIT 6, (HL)         ");} break;
-         case 0x77: {log("BIT 6, A            ");} break;
+         case 0x70: {platform_log("BIT 6, B            ");} break;
+         case 0x71: {platform_log("BIT 6, C            ");} break;
+         case 0x72: {platform_log("BIT 6, D            ");} break;
+         case 0x73: {platform_log("BIT 6, E            ");} break;
+         case 0x74: {platform_log("BIT 6, H            ");} break;
+         case 0x75: {platform_log("BIT 6, L            ");} break;
+         case 0x76: {platform_log("BIT 6, (HL)         ");} break;
+         case 0x77: {platform_log("BIT 6, A            ");} break;
 
-         case 0x78: {log("BIT 7, B            ");} break;
-         case 0x79: {log("BIT 7, C            ");} break;
-         case 0x7A: {log("BIT 7, D            ");} break;
-         case 0x7B: {log("BIT 7, E            ");} break;
-         case 0x7C: {log("BIT 7, H            ");} break;
-         case 0x7D: {log("BIT 7, L            ");} break;
-         case 0x7E: {log("BIT 7, (HL)         ");} break;
-         case 0x7F: {log("BIT 7, A            ");} break;
+         case 0x78: {platform_log("BIT 7, B            ");} break;
+         case 0x79: {platform_log("BIT 7, C            ");} break;
+         case 0x7A: {platform_log("BIT 7, D            ");} break;
+         case 0x7B: {platform_log("BIT 7, E            ");} break;
+         case 0x7C: {platform_log("BIT 7, H            ");} break;
+         case 0x7D: {platform_log("BIT 7, L            ");} break;
+         case 0x7E: {platform_log("BIT 7, (HL)         ");} break;
+         case 0x7F: {platform_log("BIT 7, A            ");} break;
 
-         case 0x80: {log("RES 0, B            ");} break;
-         case 0x81: {log("RES 0, C            ");} break;
-         case 0x82: {log("RES 0, D            ");} break;
-         case 0x83: {log("RES 0, E            ");} break;
-         case 0x84: {log("RES 0, H            ");} break;
-         case 0x85: {log("RES 0, L            ");} break;
-         case 0x86: {log("RES 0, (HL)         ");} break;
-         case 0x87: {log("RES 0, A            ");} break;
+         case 0x80: {platform_log("RES 0, B            ");} break;
+         case 0x81: {platform_log("RES 0, C            ");} break;
+         case 0x82: {platform_log("RES 0, D            ");} break;
+         case 0x83: {platform_log("RES 0, E            ");} break;
+         case 0x84: {platform_log("RES 0, H            ");} break;
+         case 0x85: {platform_log("RES 0, L            ");} break;
+         case 0x86: {platform_log("RES 0, (HL)         ");} break;
+         case 0x87: {platform_log("RES 0, A            ");} break;
 
-         case 0x88: {log("RES 1, B            ");} break;
-         case 0x89: {log("RES 1, C            ");} break;
-         case 0x8A: {log("RES 1, D            ");} break;
-         case 0x8B: {log("RES 1, E            ");} break;
-         case 0x8C: {log("RES 1, H            ");} break;
-         case 0x8D: {log("RES 1, L            ");} break;
-         case 0x8E: {log("RES 1, (HL)         ");} break;
-         case 0x8F: {log("RES 1, A            ");} break;
+         case 0x88: {platform_log("RES 1, B            ");} break;
+         case 0x89: {platform_log("RES 1, C            ");} break;
+         case 0x8A: {platform_log("RES 1, D            ");} break;
+         case 0x8B: {platform_log("RES 1, E            ");} break;
+         case 0x8C: {platform_log("RES 1, H            ");} break;
+         case 0x8D: {platform_log("RES 1, L            ");} break;
+         case 0x8E: {platform_log("RES 1, (HL)         ");} break;
+         case 0x8F: {platform_log("RES 1, A            ");} break;
 
-         case 0x90: {log("RES 2, B            ");} break;
-         case 0x91: {log("RES 2, C            ");} break;
-         case 0x92: {log("RES 2, D            ");} break;
-         case 0x93: {log("RES 2, E            ");} break;
-         case 0x94: {log("RES 2, H            ");} break;
-         case 0x95: {log("RES 2, L            ");} break;
-         case 0x96: {log("RES 2, (HL)         ");} break;
-         case 0x97: {log("RES 2, A            ");} break;
+         case 0x90: {platform_log("RES 2, B            ");} break;
+         case 0x91: {platform_log("RES 2, C            ");} break;
+         case 0x92: {platform_log("RES 2, D            ");} break;
+         case 0x93: {platform_log("RES 2, E            ");} break;
+         case 0x94: {platform_log("RES 2, H            ");} break;
+         case 0x95: {platform_log("RES 2, L            ");} break;
+         case 0x96: {platform_log("RES 2, (HL)         ");} break;
+         case 0x97: {platform_log("RES 2, A            ");} break;
 
-         case 0x98: {log("RES 3, B            ");} break;
-         case 0x99: {log("RES 3, C            ");} break;
-         case 0x9A: {log("RES 3, D            ");} break;
-         case 0x9B: {log("RES 3, E            ");} break;
-         case 0x9C: {log("RES 3, H            ");} break;
-         case 0x9D: {log("RES 3, L            ");} break;
-         case 0x9E: {log("RES 3, (HL)         ");} break;
-         case 0x9F: {log("RES 3, A            ");} break;
+         case 0x98: {platform_log("RES 3, B            ");} break;
+         case 0x99: {platform_log("RES 3, C            ");} break;
+         case 0x9A: {platform_log("RES 3, D            ");} break;
+         case 0x9B: {platform_log("RES 3, E            ");} break;
+         case 0x9C: {platform_log("RES 3, H            ");} break;
+         case 0x9D: {platform_log("RES 3, L            ");} break;
+         case 0x9E: {platform_log("RES 3, (HL)         ");} break;
+         case 0x9F: {platform_log("RES 3, A            ");} break;
 
-         case 0xA0: {log("RES 4, B            ");} break;
-         case 0xA1: {log("RES 4, C            ");} break;
-         case 0xA2: {log("RES 4, D            ");} break;
-         case 0xA3: {log("RES 4, E            ");} break;
-         case 0xA4: {log("RES 4, H            ");} break;
-         case 0xA5: {log("RES 4, L            ");} break;
-         case 0xA6: {log("RES 4, (HL)         ");} break;
-         case 0xA7: {log("RES 4, A            ");} break;
+         case 0xA0: {platform_log("RES 4, B            ");} break;
+         case 0xA1: {platform_log("RES 4, C            ");} break;
+         case 0xA2: {platform_log("RES 4, D            ");} break;
+         case 0xA3: {platform_log("RES 4, E            ");} break;
+         case 0xA4: {platform_log("RES 4, H            ");} break;
+         case 0xA5: {platform_log("RES 4, L            ");} break;
+         case 0xA6: {platform_log("RES 4, (HL)         ");} break;
+         case 0xA7: {platform_log("RES 4, A            ");} break;
 
-         case 0xA8: {log("RES 5, B            ");} break;
-         case 0xA9: {log("RES 5, C            ");} break;
-         case 0xAA: {log("RES 5, D            ");} break;
-         case 0xAB: {log("RES 5, E            ");} break;
-         case 0xAC: {log("RES 5, H            ");} break;
-         case 0xAD: {log("RES 5, L            ");} break;
-         case 0xAE: {log("RES 5, (HL)         ");} break;
-         case 0xAF: {log("RES 5, A            ");} break;
+         case 0xA8: {platform_log("RES 5, B            ");} break;
+         case 0xA9: {platform_log("RES 5, C            ");} break;
+         case 0xAA: {platform_log("RES 5, D            ");} break;
+         case 0xAB: {platform_log("RES 5, E            ");} break;
+         case 0xAC: {platform_log("RES 5, H            ");} break;
+         case 0xAD: {platform_log("RES 5, L            ");} break;
+         case 0xAE: {platform_log("RES 5, (HL)         ");} break;
+         case 0xAF: {platform_log("RES 5, A            ");} break;
 
-         case 0xB0: {log("RES 6, B            ");} break;
-         case 0xB1: {log("RES 6, C            ");} break;
-         case 0xB2: {log("RES 6, D            ");} break;
-         case 0xB3: {log("RES 6, E            ");} break;
-         case 0xB4: {log("RES 6, H            ");} break;
-         case 0xB5: {log("RES 6, L            ");} break;
-         case 0xB6: {log("RES 6, (HL)         ");} break;
-         case 0xB7: {log("RES 6, A            ");} break;
+         case 0xB0: {platform_log("RES 6, B            ");} break;
+         case 0xB1: {platform_log("RES 6, C            ");} break;
+         case 0xB2: {platform_log("RES 6, D            ");} break;
+         case 0xB3: {platform_log("RES 6, E            ");} break;
+         case 0xB4: {platform_log("RES 6, H            ");} break;
+         case 0xB5: {platform_log("RES 6, L            ");} break;
+         case 0xB6: {platform_log("RES 6, (HL)         ");} break;
+         case 0xB7: {platform_log("RES 6, A            ");} break;
 
-         case 0xB8: {log("RES 7, B            ");} break;
-         case 0xB9: {log("RES 7, C            ");} break;
-         case 0xBA: {log("RES 7, D            ");} break;
-         case 0xBB: {log("RES 7, E            ");} break;
-         case 0xBC: {log("RES 7, H            ");} break;
-         case 0xBD: {log("RES 7, L            ");} break;
-         case 0xBE: {log("RES 7, (HL)         ");} break;
-         case 0xBF: {log("RES 7, A            ");} break;
+         case 0xB8: {platform_log("RES 7, B            ");} break;
+         case 0xB9: {platform_log("RES 7, C            ");} break;
+         case 0xBA: {platform_log("RES 7, D            ");} break;
+         case 0xBB: {platform_log("RES 7, E            ");} break;
+         case 0xBC: {platform_log("RES 7, H            ");} break;
+         case 0xBD: {platform_log("RES 7, L            ");} break;
+         case 0xBE: {platform_log("RES 7, (HL)         ");} break;
+         case 0xBF: {platform_log("RES 7, A            ");} break;
 
-         case 0xC0: {log("SET 0, B            ");} break;
-         case 0xC1: {log("SET 0, C            ");} break;
-         case 0xC2: {log("SET 0, D            ");} break;
-         case 0xC3: {log("SET 0, E            ");} break;
-         case 0xC4: {log("SET 0, H            ");} break;
-         case 0xC5: {log("SET 0, L            ");} break;
-         case 0xC6: {log("SET 0, (HL)         ");} break;
-         case 0xC7: {log("SET 0, A            ");} break;
+         case 0xC0: {platform_log("SET 0, B            ");} break;
+         case 0xC1: {platform_log("SET 0, C            ");} break;
+         case 0xC2: {platform_log("SET 0, D            ");} break;
+         case 0xC3: {platform_log("SET 0, E            ");} break;
+         case 0xC4: {platform_log("SET 0, H            ");} break;
+         case 0xC5: {platform_log("SET 0, L            ");} break;
+         case 0xC6: {platform_log("SET 0, (HL)         ");} break;
+         case 0xC7: {platform_log("SET 0, A            ");} break;
 
-         case 0xC8: {log("SET 1, B            ");} break;
-         case 0xC9: {log("SET 1, C            ");} break;
-         case 0xCA: {log("SET 1, D            ");} break;
-         case 0xCB: {log("SET 1, E            ");} break;
-         case 0xCC: {log("SET 1, H            ");} break;
-         case 0xCD: {log("SET 1, L            ");} break;
-         case 0xCE: {log("SET 1, (HL)         ");} break;
-         case 0xCF: {log("SET 1, A            ");} break;
+         case 0xC8: {platform_log("SET 1, B            ");} break;
+         case 0xC9: {platform_log("SET 1, C            ");} break;
+         case 0xCA: {platform_log("SET 1, D            ");} break;
+         case 0xCB: {platform_log("SET 1, E            ");} break;
+         case 0xCC: {platform_log("SET 1, H            ");} break;
+         case 0xCD: {platform_log("SET 1, L            ");} break;
+         case 0xCE: {platform_log("SET 1, (HL)         ");} break;
+         case 0xCF: {platform_log("SET 1, A            ");} break;
 
-         case 0xD0: {log("SET 2, B            ");} break;
-         case 0xD1: {log("SET 2, C            ");} break;
-         case 0xD2: {log("SET 2, D            ");} break;
-         case 0xD3: {log("SET 2, E            ");} break;
-         case 0xD4: {log("SET 2, H            ");} break;
-         case 0xD5: {log("SET 2, L            ");} break;
-         case 0xD6: {log("SET 2, (HL)         ");} break;
-         case 0xD7: {log("SET 2, A            ");} break;
+         case 0xD0: {platform_log("SET 2, B            ");} break;
+         case 0xD1: {platform_log("SET 2, C            ");} break;
+         case 0xD2: {platform_log("SET 2, D            ");} break;
+         case 0xD3: {platform_log("SET 2, E            ");} break;
+         case 0xD4: {platform_log("SET 2, H            ");} break;
+         case 0xD5: {platform_log("SET 2, L            ");} break;
+         case 0xD6: {platform_log("SET 2, (HL)         ");} break;
+         case 0xD7: {platform_log("SET 2, A            ");} break;
 
-         case 0xD8: {log("SET 3, B            ");} break;
-         case 0xD9: {log("SET 3, C            ");} break;
-         case 0xDA: {log("SET 3, D            ");} break;
-         case 0xDB: {log("SET 3, E            ");} break;
-         case 0xDC: {log("SET 3, H            ");} break;
-         case 0xDD: {log("SET 3, L            ");} break;
-         case 0xDE: {log("SET 3, (HL)         ");} break;
-         case 0xDF: {log("SET 3, A            ");} break;
+         case 0xD8: {platform_log("SET 3, B            ");} break;
+         case 0xD9: {platform_log("SET 3, C            ");} break;
+         case 0xDA: {platform_log("SET 3, D            ");} break;
+         case 0xDB: {platform_log("SET 3, E            ");} break;
+         case 0xDC: {platform_log("SET 3, H            ");} break;
+         case 0xDD: {platform_log("SET 3, L            ");} break;
+         case 0xDE: {platform_log("SET 3, (HL)         ");} break;
+         case 0xDF: {platform_log("SET 3, A            ");} break;
 
-         case 0xE0: {log("SET 4, B            ");} break;
-         case 0xE1: {log("SET 4, C            ");} break;
-         case 0xE2: {log("SET 4, D            ");} break;
-         case 0xE3: {log("SET 4, E            ");} break;
-         case 0xE4: {log("SET 4, H            ");} break;
-         case 0xE5: {log("SET 4, L            ");} break;
-         case 0xE6: {log("SET 4, (HL)         ");} break;
-         case 0xE7: {log("SET 4, A            ");} break;
+         case 0xE0: {platform_log("SET 4, B            ");} break;
+         case 0xE1: {platform_log("SET 4, C            ");} break;
+         case 0xE2: {platform_log("SET 4, D            ");} break;
+         case 0xE3: {platform_log("SET 4, E            ");} break;
+         case 0xE4: {platform_log("SET 4, H            ");} break;
+         case 0xE5: {platform_log("SET 4, L            ");} break;
+         case 0xE6: {platform_log("SET 4, (HL)         ");} break;
+         case 0xE7: {platform_log("SET 4, A            ");} break;
 
-         case 0xE8: {log("SET 5, B            ");} break;
-         case 0xE9: {log("SET 5, C            ");} break;
-         case 0xEA: {log("SET 5, D            ");} break;
-         case 0xEB: {log("SET 5, E            ");} break;
-         case 0xEC: {log("SET 5, H            ");} break;
-         case 0xED: {log("SET 5, L            ");} break;
-         case 0xEE: {log("SET 5, (HL)         ");} break;
-         case 0xEF: {log("SET 5, A            ");} break;
+         case 0xE8: {platform_log("SET 5, B            ");} break;
+         case 0xE9: {platform_log("SET 5, C            ");} break;
+         case 0xEA: {platform_log("SET 5, D            ");} break;
+         case 0xEB: {platform_log("SET 5, E            ");} break;
+         case 0xEC: {platform_log("SET 5, H            ");} break;
+         case 0xED: {platform_log("SET 5, L            ");} break;
+         case 0xEE: {platform_log("SET 5, (HL)         ");} break;
+         case 0xEF: {platform_log("SET 5, A            ");} break;
 
-         case 0xF0: {log("SET 6, B            ");} break;
-         case 0xF1: {log("SET 6, C            ");} break;
-         case 0xF2: {log("SET 6, D            ");} break;
-         case 0xF3: {log("SET 6, E            ");} break;
-         case 0xF4: {log("SET 6, H            ");} break;
-         case 0xF5: {log("SET 6, L            ");} break;
-         case 0xF6: {log("SET 6, (HL)         ");} break;
-         case 0xF7: {log("SET 6, A            ");} break;
+         case 0xF0: {platform_log("SET 6, B            ");} break;
+         case 0xF1: {platform_log("SET 6, C            ");} break;
+         case 0xF2: {platform_log("SET 6, D            ");} break;
+         case 0xF3: {platform_log("SET 6, E            ");} break;
+         case 0xF4: {platform_log("SET 6, H            ");} break;
+         case 0xF5: {platform_log("SET 6, L            ");} break;
+         case 0xF6: {platform_log("SET 6, (HL)         ");} break;
+         case 0xF7: {platform_log("SET 6, A            ");} break;
 
-         case 0xF8: {log("SET 7, B            ");} break;
-         case 0xF9: {log("SET 7, C            ");} break;
-         case 0xFA: {log("SET 7, D            ");} break;
-         case 0xFB: {log("SET 7, E            ");} break;
-         case 0xFC: {log("SET 7, H            ");} break;
-         case 0xFD: {log("SET 7, L            ");} break;
-         case 0xFE: {log("SET 7, (HL)         ");} break;
-         case 0xFF: {log("SET 7, A            ");} break;
+         case 0xF8: {platform_log("SET 7, B            ");} break;
+         case 0xF9: {platform_log("SET 7, C            ");} break;
+         case 0xFA: {platform_log("SET 7, D            ");} break;
+         case 0xFB: {platform_log("SET 7, E            ");} break;
+         case 0xFC: {platform_log("SET 7, H            ");} break;
+         case 0xFD: {platform_log("SET 7, L            ");} break;
+         case 0xFE: {platform_log("SET 7, (HL)         ");} break;
+         case 0xFF: {platform_log("SET 7, A            ");} break;
 
          default: {assert(!"UNHANDLED OPCODE");} break;
       }
@@ -570,128 +559,128 @@ disassemble_instruction(unsigned char *stream, unsigned int offset)
       switch(opcode)
       {
          // NOTE(law): 8-bit load instructions
-         case 0x40: {log("LD B, B             ");} break;
-         case 0x41: {log("LD B, C             ");} break;
-         case 0x42: {log("LD B, D             ");} break;
-         case 0x43: {log("LD B, E             ");} break;
-         case 0x44: {log("LD B, H             ");} break;
-         case 0x45: {log("LD B, L             ");} break;
-         case 0x46: {log("LD B, (HL)          ");} break;
-         case 0x47: {log("LD B, A             ");} break;
+         case 0x40: {platform_log("LD B, B             ");} break;
+         case 0x41: {platform_log("LD B, C             ");} break;
+         case 0x42: {platform_log("LD B, D             ");} break;
+         case 0x43: {platform_log("LD B, E             ");} break;
+         case 0x44: {platform_log("LD B, H             ");} break;
+         case 0x45: {platform_log("LD B, L             ");} break;
+         case 0x46: {platform_log("LD B, (HL)          ");} break;
+         case 0x47: {platform_log("LD B, A             ");} break;
 
-         case 0x48: {log("LD C, B             ");} break;
-         case 0x49: {log("LD C, C             ");} break;
-         case 0x4A: {log("LD C, D             ");} break;
-         case 0x4B: {log("LD C, E             ");} break;
-         case 0x4C: {log("LD C, H             ");} break;
-         case 0x4D: {log("LD C, L             ");} break;
-         case 0x4E: {log("LD C, (HL)          ");} break;
-         case 0x4F: {log("LD C, A             ");} break;
+         case 0x48: {platform_log("LD C, B             ");} break;
+         case 0x49: {platform_log("LD C, C             ");} break;
+         case 0x4A: {platform_log("LD C, D             ");} break;
+         case 0x4B: {platform_log("LD C, E             ");} break;
+         case 0x4C: {platform_log("LD C, H             ");} break;
+         case 0x4D: {platform_log("LD C, L             ");} break;
+         case 0x4E: {platform_log("LD C, (HL)          ");} break;
+         case 0x4F: {platform_log("LD C, A             ");} break;
 
-         case 0x50: {log("LD D, B             ");} break;
-         case 0x51: {log("LD D, C             ");} break;
-         case 0x52: {log("LD D, D             ");} break;
-         case 0x53: {log("LD D, E             ");} break;
-         case 0x54: {log("LD D, H             ");} break;
-         case 0x55: {log("LD D, L             ");} break;
-         case 0x56: {log("LD D, (HL)          ");} break;
-         case 0x57: {log("LD D, A             ");} break;
+         case 0x50: {platform_log("LD D, B             ");} break;
+         case 0x51: {platform_log("LD D, C             ");} break;
+         case 0x52: {platform_log("LD D, D             ");} break;
+         case 0x53: {platform_log("LD D, E             ");} break;
+         case 0x54: {platform_log("LD D, H             ");} break;
+         case 0x55: {platform_log("LD D, L             ");} break;
+         case 0x56: {platform_log("LD D, (HL)          ");} break;
+         case 0x57: {platform_log("LD D, A             ");} break;
 
-         case 0x58: {log("LD E, B             ");} break;
-         case 0x59: {log("LD E, C             ");} break;
-         case 0x5A: {log("LD E, D             ");} break;
-         case 0x5B: {log("LD E, E             ");} break;
-         case 0x5C: {log("LD E, H             ");} break;
-         case 0x5D: {log("LD E, L             ");} break;
-         case 0x5E: {log("LD E, (HL)          ");} break;
-         case 0x5F: {log("LD E, A             ");} break;
+         case 0x58: {platform_log("LD E, B             ");} break;
+         case 0x59: {platform_log("LD E, C             ");} break;
+         case 0x5A: {platform_log("LD E, D             ");} break;
+         case 0x5B: {platform_log("LD E, E             ");} break;
+         case 0x5C: {platform_log("LD E, H             ");} break;
+         case 0x5D: {platform_log("LD E, L             ");} break;
+         case 0x5E: {platform_log("LD E, (HL)          ");} break;
+         case 0x5F: {platform_log("LD E, A             ");} break;
 
-         case 0x60: {log("LD H, B             ");} break;
-         case 0x61: {log("LD H, C             ");} break;
-         case 0x62: {log("LD H, D             ");} break;
-         case 0x63: {log("LD H, E             ");} break;
-         case 0x64: {log("LD H, H             ");} break;
-         case 0x65: {log("LD H, L             ");} break;
-         case 0x66: {log("LD H, (HL)          ");} break;
-         case 0x67: {log("LD H, A             ");} break;
+         case 0x60: {platform_log("LD H, B             ");} break;
+         case 0x61: {platform_log("LD H, C             ");} break;
+         case 0x62: {platform_log("LD H, D             ");} break;
+         case 0x63: {platform_log("LD H, E             ");} break;
+         case 0x64: {platform_log("LD H, H             ");} break;
+         case 0x65: {platform_log("LD H, L             ");} break;
+         case 0x66: {platform_log("LD H, (HL)          ");} break;
+         case 0x67: {platform_log("LD H, A             ");} break;
 
-         case 0x68: {log("LD L, B             ");} break;
-         case 0x69: {log("LD L, C             ");} break;
-         case 0x6A: {log("LD L, D             ");} break;
-         case 0x6B: {log("LD L, E             ");} break;
-         case 0x6C: {log("LD L, H             ");} break;
-         case 0x6D: {log("LD L, L             ");} break;
-         case 0x6E: {log("LD L, (HL)          ");} break;
-         case 0x6F: {log("LD L, A             ");} break;
+         case 0x68: {platform_log("LD L, B             ");} break;
+         case 0x69: {platform_log("LD L, C             ");} break;
+         case 0x6A: {platform_log("LD L, D             ");} break;
+         case 0x6B: {platform_log("LD L, E             ");} break;
+         case 0x6C: {platform_log("LD L, H             ");} break;
+         case 0x6D: {platform_log("LD L, L             ");} break;
+         case 0x6E: {platform_log("LD L, (HL)          ");} break;
+         case 0x6F: {platform_log("LD L, A             ");} break;
 
-         case 0x70: {log("LD (HL), B          ");} break;
-         case 0x71: {log("LD (HL), C          ");} break;
-         case 0x72: {log("LD (HL), D          ");} break;
-         case 0x73: {log("LD (HL), E          ");} break;
-         case 0x74: {log("LD (HL), H          ");} break;
-         case 0x75: {log("LD (HL), L          ");} break;
-         case 0x77: {log("LD (HL), A          ");} break;
+         case 0x70: {platform_log("LD (HL), B          ");} break;
+         case 0x71: {platform_log("LD (HL), C          ");} break;
+         case 0x72: {platform_log("LD (HL), D          ");} break;
+         case 0x73: {platform_log("LD (HL), E          ");} break;
+         case 0x74: {platform_log("LD (HL), H          ");} break;
+         case 0x75: {platform_log("LD (HL), L          ");} break;
+         case 0x77: {platform_log("LD (HL), A          ");} break;
 
-         case 0x78: {log("LD A, B             ");} break;
-         case 0x79: {log("LD A, C             ");} break;
-         case 0x7A: {log("LD A, D             ");} break;
-         case 0x7B: {log("LD A, E             ");} break;
-         case 0x7C: {log("LD A, H             ");} break;
-         case 0x7D: {log("LD A, L             ");} break;
-         case 0x7E: {log("LD A, (HL)          ");} break;
-         case 0x7F: {log("LD A, A             ");} break;
+         case 0x78: {platform_log("LD A, B             ");} break;
+         case 0x79: {platform_log("LD A, C             ");} break;
+         case 0x7A: {platform_log("LD A, D             ");} break;
+         case 0x7B: {platform_log("LD A, E             ");} break;
+         case 0x7C: {platform_log("LD A, H             ");} break;
+         case 0x7D: {platform_log("LD A, L             ");} break;
+         case 0x7E: {platform_log("LD A, (HL)          ");} break;
+         case 0x7F: {platform_log("LD A, A             ");} break;
 
-         case 0x06: {log("LD B, 0x%02X          ", stream[offset++]);} break;
-         case 0x0E: {log("LD C, 0x%02X          ", stream[offset++]);} break;
-         case 0x16: {log("LD D, 0x%02X          ", stream[offset++]);} break;
-         case 0x1E: {log("LD E, 0x%02X          ", stream[offset++]);} break;
-         case 0x26: {log("LD H, 0x%02X          ", stream[offset++]);} break;
-         case 0x2E: {log("LD L, 0x%02X          ", stream[offset++]);} break;
-         case 0x36: {log("LD (HL), 0x%02X       ", stream[offset++]);} break;
-         case 0x3E: {log("LD A, 0x%02X          ", stream[offset++]);} break;
+         case 0x06: {platform_log("LD B, 0x%02X          ", stream[offset++]);} break;
+         case 0x0E: {platform_log("LD C, 0x%02X          ", stream[offset++]);} break;
+         case 0x16: {platform_log("LD D, 0x%02X          ", stream[offset++]);} break;
+         case 0x1E: {platform_log("LD E, 0x%02X          ", stream[offset++]);} break;
+         case 0x26: {platform_log("LD H, 0x%02X          ", stream[offset++]);} break;
+         case 0x2E: {platform_log("LD L, 0x%02X          ", stream[offset++]);} break;
+         case 0x36: {platform_log("LD (HL), 0x%02X       ", stream[offset++]);} break;
+         case 0x3E: {platform_log("LD A, 0x%02X          ", stream[offset++]);} break;
 
-         case 0x0A: {log("LD A, (BC)          ");} break;
-         case 0x1A: {log("LD A, (DE)          ");} break;
+         case 0x0A: {platform_log("LD A, (BC)          ");} break;
+         case 0x1A: {platform_log("LD A, (DE)          ");} break;
 
          case 0xFA:
          {
             unsigned short operand = *((unsigned short *)(stream + offset));
             offset += 2;
-            log("LD A, (0x%04X)      ", operand);
+            platform_log("LD A, (0x%04X)      ", operand);
          } break;
 
-         case 0x02: {log("LD (BC), A          ");} break;
-         case 0x12: {log("LD (DE), A          ");} break;
+         case 0x02: {platform_log("LD (BC), A          ");} break;
+         case 0x12: {platform_log("LD (DE), A          ");} break;
 
          case 0xEA:
          {
             unsigned short operand = *((unsigned short *)(stream + offset));
             offset += 2;
-            log("LD (0x%04X), A      ", operand);
+            platform_log("LD (0x%04X), A      ", operand);
          } break;
 
-         case 0xF2: {log("LD A, (FF00 + C)    ");} break;
-         case 0xE2: {log("LD (FF00 + C), A    ");} break;
+         case 0xF2: {platform_log("LD A, (FF00 + C)    ");} break;
+         case 0xE2: {platform_log("LD (FF00 + C), A    ");} break;
 
-         case 0xF0: {log("LD A, (FF00 + 0x%02X) ", stream[offset++]);} break;
-         case 0xE0: {log("LD (FF00 + 0x%02X), A ", stream[offset++]);} break;
+         case 0xF0: {platform_log("LD A, (FF00 + 0x%02X) ", stream[offset++]);} break;
+         case 0xE0: {platform_log("LD (FF00 + 0x%02X), A ", stream[offset++]);} break;
 
-         case 0x22: {log("LDI (HL), A         ");} break;
-         case 0x32: {log("LDD (HL), A         ");} break;
-         case 0x2A: {log("LDI A, (HL)         ");} break;
-         case 0x3A: {log("LDD A, (HL)         ");} break;
+         case 0x22: {platform_log("LDI (HL), A         ");} break;
+         case 0x32: {platform_log("LDD (HL), A         ");} break;
+         case 0x2A: {platform_log("LDI A, (HL)         ");} break;
+         case 0x3A: {platform_log("LDD A, (HL)         ");} break;
 
-         case 0xF9: {log("LD SP, HL           ");} break;
+         case 0xF9: {platform_log("LD SP, HL           ");} break;
 
-         case 0xC5: {log("PUSH BC             ");} break;
-         case 0xD5: {log("PUSH DE             ");} break;
-         case 0xE5: {log("PUSH HL             ");} break;
-         case 0xF5: {log("PUSH AF             ");} break;
+         case 0xC5: {platform_log("PUSH BC             ");} break;
+         case 0xD5: {platform_log("PUSH DE             ");} break;
+         case 0xE5: {platform_log("PUSH HL             ");} break;
+         case 0xF5: {platform_log("PUSH AF             ");} break;
 
-         case 0xC1: {log("POP BC              ");} break;
-         case 0xD1: {log("POP DE              ");} break;
-         case 0xE1: {log("POP HL              ");} break;
-         case 0xF1: {log("POP AF              ");} break;
+         case 0xC1: {platform_log("POP BC              ");} break;
+         case 0xD1: {platform_log("POP DE              ");} break;
+         case 0xE1: {platform_log("POP HL              ");} break;
+         case 0xF1: {platform_log("POP AF              ");} break;
 
 
             // NOTE(law): 16-bit load instructions
@@ -699,317 +688,317 @@ disassemble_instruction(unsigned char *stream, unsigned int offset)
          {
             unsigned short operand = *((unsigned short *)(stream + offset));
             offset += 2;
-            log("LD 0x%04X, SP       ", operand);
+            platform_log("LD 0x%04X, SP       ", operand);
          } break;
 
          case 0x01:
          {
             unsigned short operand = *((unsigned short *)(stream + offset));
             offset += 2;
-            log("LD BC, 0x%04X       ", operand);
+            platform_log("LD BC, 0x%04X       ", operand);
          } break;
 
          case 0x11:
          {
             unsigned short operand = *((unsigned short *)(stream + offset));
             offset += 2;
-            log("LD DE, 0x%04X       ", operand);
+            platform_log("LD DE, 0x%04X       ", operand);
          } break;
 
          case 0x21:
          {
             unsigned short operand = *((unsigned short *)(stream + offset));
             offset += 2;
-            log("LD HL, 0x%04X       ", operand);
+            platform_log("LD HL, 0x%04X       ", operand);
          } break;
 
          case 0x31:
          {
             unsigned short operand = *((unsigned short *)(stream + offset));
             offset += 2;
-            log("LD SP, 0x%04X       ", operand);
+            platform_log("LD SP, 0x%04X       ", operand);
          } break;
 
 
          // NOTE(law): Rotate and Shift instructions
-         case 0x07: {log("RLCA                ");} break;
-         case 0x17: {log("RLA                 ");} break;
-         case 0x0F: {log("RRCA                ");} break;
-         case 0x1F: {log("RRA                 ");} break;
+         case 0x07: {platform_log("RLCA                ");} break;
+         case 0x17: {platform_log("RLA                 ");} break;
+         case 0x0F: {platform_log("RRCA                ");} break;
+         case 0x1F: {platform_log("RRA                 ");} break;
 
 
             // NOTE(law): 8-bit Arithmetic/Logic instructions
-         case 0x80: {log("ADD A, B            ");} break;
-         case 0x81: {log("ADD A, C            ");} break;
-         case 0x82: {log("ADD A, D            ");} break;
-         case 0x83: {log("ADD A, E            ");} break;
-         case 0x84: {log("ADD A, H            ");} break;
-         case 0x85: {log("ADD A, L            ");} break;
-         case 0x86: {log("ADD A, (HL)         ");} break;
-         case 0x87: {log("ADD A               ");} break;
+         case 0x80: {platform_log("ADD A, B            ");} break;
+         case 0x81: {platform_log("ADD A, C            ");} break;
+         case 0x82: {platform_log("ADD A, D            ");} break;
+         case 0x83: {platform_log("ADD A, E            ");} break;
+         case 0x84: {platform_log("ADD A, H            ");} break;
+         case 0x85: {platform_log("ADD A, L            ");} break;
+         case 0x86: {platform_log("ADD A, (HL)         ");} break;
+         case 0x87: {platform_log("ADD A               ");} break;
 
          case 0xC6:
          {
             unsigned char operand = *(stream + offset++);
-            log("ADD A, 0x%02X         ", operand);
+            platform_log("ADD A, 0x%02X         ", operand);
          } break;
 
-         case 0x88: {log("ADC A, B            ");} break;
-         case 0x89: {log("ADC A, C            ");} break;
-         case 0x8A: {log("ADC A, D            ");} break;
-         case 0x8B: {log("ADC A, E            ");} break;
-         case 0x8C: {log("ADC A, H            ");} break;
-         case 0x8D: {log("ADC A, L            ");} break;
-         case 0x8E: {log("ADC A, (HL)         ");} break;
-         case 0x8F: {log("ADC A, A            ");} break;
+         case 0x88: {platform_log("ADC A, B            ");} break;
+         case 0x89: {platform_log("ADC A, C            ");} break;
+         case 0x8A: {platform_log("ADC A, D            ");} break;
+         case 0x8B: {platform_log("ADC A, E            ");} break;
+         case 0x8C: {platform_log("ADC A, H            ");} break;
+         case 0x8D: {platform_log("ADC A, L            ");} break;
+         case 0x8E: {platform_log("ADC A, (HL)         ");} break;
+         case 0x8F: {platform_log("ADC A, A            ");} break;
 
          case 0xCE:
          {
             unsigned char operand = *(stream + offset++);
-            log("ADC A, 0x%02X         ", operand);
+            platform_log("ADC A, 0x%02X         ", operand);
          } break;
 
-         case 0x90: {log("SUB A, B            ");} break;
-         case 0x91: {log("SUB A, C            ");} break;
-         case 0x92: {log("SUB A, D            ");} break;
-         case 0x93: {log("SUB A, E            ");} break;
-         case 0x94: {log("SUB A, H            ");} break;
-         case 0x95: {log("SUB A, L            ");} break;
-         case 0x96: {log("SUB A, (HL)         ");} break;
-         case 0x97: {log("SUB A               ");} break;
+         case 0x90: {platform_log("SUB A, B            ");} break;
+         case 0x91: {platform_log("SUB A, C            ");} break;
+         case 0x92: {platform_log("SUB A, D            ");} break;
+         case 0x93: {platform_log("SUB A, E            ");} break;
+         case 0x94: {platform_log("SUB A, H            ");} break;
+         case 0x95: {platform_log("SUB A, L            ");} break;
+         case 0x96: {platform_log("SUB A, (HL)         ");} break;
+         case 0x97: {platform_log("SUB A               ");} break;
 
          case 0xD6:
          {
             unsigned char operand = *(stream + offset++);
-            log("SUB 0x%02X            ", operand);
+            platform_log("SUB 0x%02X            ", operand);
          } break;
 
-         case 0x98: {log("SBC A, B            ");} break;
-         case 0x99: {log("SBC A, C            ");} break;
-         case 0x9A: {log("SBC A, D            ");} break;
-         case 0x9B: {log("SBC A, E            ");} break;
-         case 0x9C: {log("SBC A, H            ");} break;
-         case 0x9D: {log("SBC A, L            ");} break;
-         case 0x9E: {log("SBC A, (HL)         ");} break;
-         case 0x9F: {log("SBC A, A            ");} break;
+         case 0x98: {platform_log("SBC A, B            ");} break;
+         case 0x99: {platform_log("SBC A, C            ");} break;
+         case 0x9A: {platform_log("SBC A, D            ");} break;
+         case 0x9B: {platform_log("SBC A, E            ");} break;
+         case 0x9C: {platform_log("SBC A, H            ");} break;
+         case 0x9D: {platform_log("SBC A, L            ");} break;
+         case 0x9E: {platform_log("SBC A, (HL)         ");} break;
+         case 0x9F: {platform_log("SBC A, A            ");} break;
 
-         case 0xDE: {log("SBC A, 0x%02X         ", stream[offset++]);} break;
+         case 0xDE: {platform_log("SBC A, 0x%02X         ", stream[offset++]);} break;
 
-         case 0x27: {log("DAA                 ");} break;
-         case 0x2F: {log("CPL                 ");} break;
+         case 0x27: {platform_log("DAA                 ");} break;
+         case 0x2F: {platform_log("CPL                 ");} break;
 
-         case 0xA8: {log("XOR B               ");} break;
-         case 0xA9: {log("XOR C               ");} break;
-         case 0xAA: {log("XOR D               ");} break;
-         case 0xAB: {log("XOR E               ");} break;
-         case 0xAC: {log("XOR H               ");} break;
-         case 0xAD: {log("XOR L               ");} break;
-         case 0xAE: {log("XOR (HL)            ");} break;
-         case 0xAF: {log("XOR A               ");} break;
+         case 0xA8: {platform_log("XOR B               ");} break;
+         case 0xA9: {platform_log("XOR C               ");} break;
+         case 0xAA: {platform_log("XOR D               ");} break;
+         case 0xAB: {platform_log("XOR E               ");} break;
+         case 0xAC: {platform_log("XOR H               ");} break;
+         case 0xAD: {platform_log("XOR L               ");} break;
+         case 0xAE: {platform_log("XOR (HL)            ");} break;
+         case 0xAF: {platform_log("XOR A               ");} break;
 
-         case 0xEE: {log("XOR 0x%02X            ", stream[offset++]);} break;
+         case 0xEE: {platform_log("XOR 0x%02X            ", stream[offset++]);} break;
 
-         case 0xB0: {log("OR B                ");} break;
-         case 0xB1: {log("OR C                ");} break;
-         case 0xB2: {log("OR D                ");} break;
-         case 0xB3: {log("OR E                ");} break;
-         case 0xB4: {log("OR H                ");} break;
-         case 0xB5: {log("OR L                ");} break;
-         case 0xB6: {log("OR (HL)             ");} break;
-         case 0xB7: {log("OR A                ");} break;
+         case 0xB0: {platform_log("OR B                ");} break;
+         case 0xB1: {platform_log("OR C                ");} break;
+         case 0xB2: {platform_log("OR D                ");} break;
+         case 0xB3: {platform_log("OR E                ");} break;
+         case 0xB4: {platform_log("OR H                ");} break;
+         case 0xB5: {platform_log("OR L                ");} break;
+         case 0xB6: {platform_log("OR (HL)             ");} break;
+         case 0xB7: {platform_log("OR A                ");} break;
 
-         case 0xF6: {log("OR 0x%02X             ", stream[offset++]);} break;
+         case 0xF6: {platform_log("OR 0x%02X             ", stream[offset++]);} break;
 
-         case 0xA0: {log("AND B               ");} break;
-         case 0xA1: {log("AND C               ");} break;
-         case 0xA2: {log("AND D               ");} break;
-         case 0xA3: {log("AND E               ");} break;
-         case 0xA4: {log("AND H               ");} break;
-         case 0xA5: {log("AND L               ");} break;
-         case 0xA6: {log("AND (HL)            ");} break;
-         case 0xA7: {log("AND A               ");} break;
+         case 0xA0: {platform_log("AND B               ");} break;
+         case 0xA1: {platform_log("AND C               ");} break;
+         case 0xA2: {platform_log("AND D               ");} break;
+         case 0xA3: {platform_log("AND E               ");} break;
+         case 0xA4: {platform_log("AND H               ");} break;
+         case 0xA5: {platform_log("AND L               ");} break;
+         case 0xA6: {platform_log("AND (HL)            ");} break;
+         case 0xA7: {platform_log("AND A               ");} break;
 
-         case 0xE6: {log("AND 0x%02X            ", stream[offset++]);} break;
+         case 0xE6: {platform_log("AND 0x%02X            ", stream[offset++]);} break;
 
-         case 0xB8: {log("CP B                ");} break;
-         case 0xB9: {log("CP C                ");} break;
-         case 0xBA: {log("CP D                ");} break;
-         case 0xBB: {log("CP E                ");} break;
-         case 0xBC: {log("CP H                ");} break;
-         case 0xBD: {log("CP L                ");} break;
-         case 0xBE: {log("CP (HL)             ");} break;
-         case 0xBF: {log("CP A                ");} break;
+         case 0xB8: {platform_log("CP B                ");} break;
+         case 0xB9: {platform_log("CP C                ");} break;
+         case 0xBA: {platform_log("CP D                ");} break;
+         case 0xBB: {platform_log("CP E                ");} break;
+         case 0xBC: {platform_log("CP H                ");} break;
+         case 0xBD: {platform_log("CP L                ");} break;
+         case 0xBE: {platform_log("CP (HL)             ");} break;
+         case 0xBF: {platform_log("CP A                ");} break;
 
-         case 0xFE: {log("CP 0x%02X             ", stream[offset++]);} break;
+         case 0xFE: {platform_log("CP 0x%02X             ", stream[offset++]);} break;
 
-         case 0x04: {log("INC B               ");} break;
-         case 0x0C: {log("INC C               ");} break;
-         case 0x14: {log("INC D               ");} break;
-         case 0x1C: {log("INC E               ");} break;
-         case 0x24: {log("INC H               ");} break;
-         case 0x2C: {log("INC L               ");} break;
-         case 0x34: {log("INC (HL)            ");} break;
-         case 0x3C: {log("INC A               ");} break;
+         case 0x04: {platform_log("INC B               ");} break;
+         case 0x0C: {platform_log("INC C               ");} break;
+         case 0x14: {platform_log("INC D               ");} break;
+         case 0x1C: {platform_log("INC E               ");} break;
+         case 0x24: {platform_log("INC H               ");} break;
+         case 0x2C: {platform_log("INC L               ");} break;
+         case 0x34: {platform_log("INC (HL)            ");} break;
+         case 0x3C: {platform_log("INC A               ");} break;
 
-         case 0x05: {log("DEC B               ");} break;
-         case 0x0D: {log("DEC C               ");} break;
-         case 0x15: {log("DEC D               ");} break;
-         case 0x1D: {log("DEC E               ");} break;
-         case 0x25: {log("DEC H               ");} break;
-         case 0x2D: {log("DEC L               ");} break;
-         case 0x35: {log("DEC (HL)            ");} break;
-         case 0x3D: {log("DEC A               ");} break;
+         case 0x05: {platform_log("DEC B               ");} break;
+         case 0x0D: {platform_log("DEC C               ");} break;
+         case 0x15: {platform_log("DEC D               ");} break;
+         case 0x1D: {platform_log("DEC E               ");} break;
+         case 0x25: {platform_log("DEC H               ");} break;
+         case 0x2D: {platform_log("DEC L               ");} break;
+         case 0x35: {platform_log("DEC (HL)            ");} break;
+         case 0x3D: {platform_log("DEC A               ");} break;
 
 
          // NOTE(law): 16-bit Arithmetic/Logic instructions
-         case 0x09: {log("ADD HL, BC          ");} break;
-         case 0x19: {log("ADD HL, DE          ");} break;
-         case 0x29: {log("ADD HL, HL          ");} break;
-         case 0x39: {log("ADD HL, SP          ");} break;
+         case 0x09: {platform_log("ADD HL, BC          ");} break;
+         case 0x19: {platform_log("ADD HL, DE          ");} break;
+         case 0x29: {platform_log("ADD HL, HL          ");} break;
+         case 0x39: {platform_log("ADD HL, SP          ");} break;
 
-         case 0x03: {log("INC BC              ");} break;
-         case 0x13: {log("INC DE              ");} break;
-         case 0x23: {log("INC HL              ");} break;
-         case 0x33: {log("INC SP              ");} break;
+         case 0x03: {platform_log("INC BC              ");} break;
+         case 0x13: {platform_log("INC DE              ");} break;
+         case 0x23: {platform_log("INC HL              ");} break;
+         case 0x33: {platform_log("INC SP              ");} break;
 
-         case 0x0B: {log("DEC BC              ");} break;
-         case 0x1B: {log("DEC DE              ");} break;
-         case 0x2B: {log("DEC HL              ");} break;
-         case 0x3B: {log("DEC SP              ");} break;
+         case 0x0B: {platform_log("DEC BC              ");} break;
+         case 0x1B: {platform_log("DEC DE              ");} break;
+         case 0x2B: {platform_log("DEC HL              ");} break;
+         case 0x3B: {platform_log("DEC SP              ");} break;
 
-         case 0xE8: {log("ADD SP, 0x%02X        ", stream[offset++]);} break;
-         case 0xF8: {log("LD HL, SP + 0x%02X    ", stream[offset++]);} break;
+         case 0xE8: {platform_log("ADD SP, 0x%02X        ", stream[offset++]);} break;
+         case 0xF8: {platform_log("LD HL, SP + 0x%02X    ", stream[offset++]);} break;
 
 
          // NOTE(law): CPU Control instructions
-         case 0x3F: {log("CCF                 ");} break;
-         case 0x37: {log("SCF                 ");} break;
-         case 0x00: {log("NOP                 ");} break;
-         case 0x76: {log("HALT                ");} break;
-         case 0x10: {log("STOP 0x%02X           ", stream[offset++]);} break;
-         case 0xF3: {log("DI                  ");} break;
-         case 0xFB: {log("EI                  ");} break;
+         case 0x3F: {platform_log("CCF                 ");} break;
+         case 0x37: {platform_log("SCF                 ");} break;
+         case 0x00: {platform_log("NOP                 ");} break;
+         case 0x76: {platform_log("HALT                ");} break;
+         case 0x10: {platform_log("STOP 0x%02X           ", stream[offset++]);} break;
+         case 0xF3: {platform_log("DI                  ");} break;
+         case 0xFB: {platform_log("EI                  ");} break;
 
 
          // NOTE(law): Jump instructions
-         case 0xE9: {log("JP HL               ");} break;
+         case 0xE9: {platform_log("JP HL               ");} break;
 
          case 0xC3:
          {
             unsigned short operand = *(unsigned short *)(stream + offset);
             offset += 2;
-            log("JP 0x%04X           ", operand);
+            platform_log("JP 0x%04X           ", operand);
          } break;
 
          case 0xC2:
          {
             unsigned short operand = *(unsigned short *)(stream + offset);
             offset += 2;
-            log("JP NZ, 0x%04X       ", operand);
+            platform_log("JP NZ, 0x%04X       ", operand);
          } break;
 
          case 0xCA:
          {
             unsigned short operand = *(unsigned short *)(stream + offset);
             offset += 2;
-            log("JP Z, 0x%04X        ", operand);
+            platform_log("JP Z, 0x%04X        ", operand);
          } break;
 
          case 0xD2:
          {
             unsigned short operand = *(unsigned short *)(stream + offset);
             offset += 2;
-            log("JP NC, 0x%04X       ", operand);
+            platform_log("JP NC, 0x%04X       ", operand);
          } break;
 
          case 0xDA:
          {
             unsigned short operand = *(unsigned short *)(stream + offset);
             offset += 2;
-            log("JP C, 0x%04X        ", operand);
+            platform_log("JP C, 0x%04X        ", operand);
          } break;
 
-         case 0x18: {log("JR PC + 0x%02X        ", stream[offset++]);} break;
-         case 0x20: {log("JR NZ, PC + 0x%02X    ", stream[offset++]);} break;
-         case 0x28: {log("JR Z, PC + 0x%02X     ", stream[offset++]);} break;
-         case 0x30: {log("JR NC, PC + 0x%02X    ", stream[offset++]);} break;
-         case 0x38: {log("JR C, PC + 0x%02X     ", stream[offset++]);} break;
+         case 0x18: {platform_log("JR PC + 0x%02X        ", stream[offset++]);} break;
+         case 0x20: {platform_log("JR NZ, PC + 0x%02X    ", stream[offset++]);} break;
+         case 0x28: {platform_log("JR Z, PC + 0x%02X     ", stream[offset++]);} break;
+         case 0x30: {platform_log("JR NC, PC + 0x%02X    ", stream[offset++]);} break;
+         case 0x38: {platform_log("JR C, PC + 0x%02X     ", stream[offset++]);} break;
 
          case 0xC4:
          {
             unsigned short operand = *((unsigned short *)(stream + offset));
             offset += 2;
-            log("CALL NZ, 0x%04X     ", operand);
+            platform_log("CALL NZ, 0x%04X     ", operand);
          } break;
 
          case 0xCC:
          {
             unsigned short operand = *((unsigned short *)(stream + offset));
             offset += 2;
-            log("CALL Z, 0x%04X      ", operand);
+            platform_log("CALL Z, 0x%04X      ", operand);
          } break;
 
          case 0xCD:
          {
             unsigned short operand = *((unsigned short *)(stream + offset));
             offset += 2;
-            log("CALL 0x%04X         ", operand);
+            platform_log("CALL 0x%04X         ", operand);
          } break;
 
          case 0xD4:
          {
             unsigned short operand = *((unsigned short *)(stream + offset));
             offset += 2;
-            log("CALL NC, 0x%04X     ", operand);
+            platform_log("CALL NC, 0x%04X     ", operand);
          } break;
 
          case 0xDC:
          {
             unsigned short operand = *((unsigned short *)(stream + offset));
             offset += 2;
-            log("CALL C, 0x%04X      ", operand);
+            platform_log("CALL C, 0x%04X      ", operand);
          } break;
 
-         case 0xC0: {log("RET NZ              ");} break;
-         case 0xC8: {log("RET Z               ");} break;
-         case 0xC9: {log("RET                 ");} break;
-         case 0xD0: {log("RET NC              ");} break;
-         case 0xD8: {log("RET C               ");} break;
+         case 0xC0: {platform_log("RET NZ              ");} break;
+         case 0xC8: {platform_log("RET Z               ");} break;
+         case 0xC9: {platform_log("RET                 ");} break;
+         case 0xD0: {platform_log("RET NC              ");} break;
+         case 0xD8: {platform_log("RET C               ");} break;
 
-         case 0xD9: {log("RETI                ");} break;
+         case 0xD9: {platform_log("RETI                ");} break;
 
-         case 0xC7: {log("RST 00H             ");} break;
-         case 0xCF: {log("RST 08H             ");} break;
-         case 0xD7: {log("RST 10H             ");} break;
-         case 0xDF: {log("RST 18H             ");} break;
-         case 0xE7: {log("RST 20H             ");} break;
-         case 0xEF: {log("RST 28H             ");} break;
-         case 0xF7: {log("RST 30H             ");} break;
-         case 0xFF: {log("RST 38H             ");} break;
+         case 0xC7: {platform_log("RST 00H             ");} break;
+         case 0xCF: {platform_log("RST 08H             ");} break;
+         case 0xD7: {platform_log("RST 10H             ");} break;
+         case 0xDF: {platform_log("RST 18H             ");} break;
+         case 0xE7: {platform_log("RST 20H             ");} break;
+         case 0xEF: {platform_log("RST 28H             ");} break;
+         case 0xF7: {platform_log("RST 30H             ");} break;
+         case 0xFF: {platform_log("RST 38H             ");} break;
 
-         case 0xD3: {log("ILLEGAL_D3          ");} break;
-         case 0xDB: {log("ILLEGAL_DB          ");} break;
-         case 0xDD: {log("ILLEGAL_DD          ");} break;
-         case 0xE3: {log("ILLEGAL_E3          ");} break;
-         case 0xE4: {log("ILLEGAL_E4          ");} break;
-         case 0xEB: {log("ILLEGAL_EB          ");} break;
-         case 0xEC: {log("ILLEGAL_EC          ");} break;
-         case 0xED: {log("ILLEGAL_ED          ");} break;
-         case 0xF4: {log("ILLEGAL_F4          ");} break;
-         case 0xFC: {log("ILLEGAL_FC          ");} break;
-         case 0xFD: {log("ILLEGAL_FD          ");} break;
+         case 0xD3: {platform_log("ILLEGAL_D3          ");} break;
+         case 0xDB: {platform_log("ILLEGAL_DB          ");} break;
+         case 0xDD: {platform_log("ILLEGAL_DD          ");} break;
+         case 0xE3: {platform_log("ILLEGAL_E3          ");} break;
+         case 0xE4: {platform_log("ILLEGAL_E4          ");} break;
+         case 0xEB: {platform_log("ILLEGAL_EB          ");} break;
+         case 0xEC: {platform_log("ILLEGAL_EC          ");} break;
+         case 0xED: {platform_log("ILLEGAL_ED          ");} break;
+         case 0xF4: {platform_log("ILLEGAL_F4          ");} break;
+         case 0xFC: {platform_log("ILLEGAL_FC          ");} break;
+         case 0xFD: {platform_log("ILLEGAL_FD          ");} break;
 
          default: {assert(!"UNHANDLED OPCODE");} break;
       }
    }
 
-   log("    ; ");
+   platform_log("    ; ");
    for(unsigned int index = initial_offset; index < offset; ++index)
    {
-      log("%02X ", stream[index]);
+      platform_log("%02X ", stream[index]);
    }
 
-   log("\n");
+   platform_log("\n");
 
    unsigned int result = offset - initial_offset;
    return(result);
@@ -1712,7 +1701,7 @@ sra(unsigned char *value)
 
    // TODO(law): Confirm that casting to a signed value actually produces an
    // arithmetic shift in this case.
-   *value = ((signed short)value >> 1);
+   *value = ((signed short)*value >> 1);
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
    register_f = (register_f & ~FLAG_Z_MASK) | ((*value == 0) << FLAG_Z_BIT);
@@ -1763,8 +1752,6 @@ srl(unsigned char *value)
 static void
 fetch_and_execute(unsigned char *stream)
 {
-   disassemble_instruction(stream, register_pc);
-
    unsigned char opcode = stream[register_pc++];
 
    if(opcode == 0xCB)
@@ -2066,7 +2053,7 @@ fetch_and_execute(unsigned char *stream)
 
          default:
          {
-            log("UNHANDLED OPCODE CB %x\n", opcode);
+            platform_log("UNHANDLED OPCODE CB %x\n", opcode);
             assert(0);
          } break;
       }
@@ -2076,7 +2063,7 @@ fetch_and_execute(unsigned char *stream)
       switch(opcode)
       {
          // NOTE(law): 8-bit load instructions
-         case 0x40: {register_b = register_b;} break;
+         case 0x40: {/*register_b = register_b;*/} break;
          case 0x41: {register_b = register_c;} break;
          case 0x42: {register_b = register_d;} break;
          case 0x43: {register_b = register_e;} break;
@@ -2086,7 +2073,7 @@ fetch_and_execute(unsigned char *stream)
          case 0x47: {register_b = register_a;} break;
 
          case 0x48: {register_c = register_b;} break;
-         case 0x49: {register_c = register_c;} break;
+         case 0x49: {/*register_c = register_c;*/} break;
          case 0x4A: {register_c = register_d;} break;
          case 0x4B: {register_c = register_e;} break;
          case 0x4C: {register_c = register_h;} break;
@@ -2096,7 +2083,7 @@ fetch_and_execute(unsigned char *stream)
 
          case 0x50: {register_d = register_b;} break;
          case 0x51: {register_d = register_c;} break;
-         case 0x52: {register_d = register_d;} break;
+         case 0x52: {/*register_d = register_d;*/} break;
          case 0x53: {register_d = register_e;} break;
          case 0x54: {register_d = register_h;} break;
          case 0x55: {register_d = register_l;} break;
@@ -2106,7 +2093,7 @@ fetch_and_execute(unsigned char *stream)
          case 0x58: {register_e = register_b;} break;
          case 0x59: {register_e = register_c;} break;
          case 0x5A: {register_e = register_d;} break;
-         case 0x5B: {register_e = register_e;} break;
+         case 0x5B: {/*register_e = register_e;*/} break;
          case 0x5C: {register_e = register_h;} break;
          case 0x5D: {register_e = register_l;} break;
          case 0x5E: {register_e = stream[REGISTER_HL];} break;
@@ -2116,7 +2103,7 @@ fetch_and_execute(unsigned char *stream)
          case 0x61: {register_h = register_c;} break;
          case 0x62: {register_h = register_d;} break;
          case 0x63: {register_h = register_e;} break;
-         case 0x64: {register_h = register_h;} break;
+         case 0x64: {/*register_h = register_h;*/} break;
          case 0x65: {register_h = register_l;} break;
          case 0x66: {register_h = stream[REGISTER_HL];} break;
          case 0x67: {register_h = register_a;} break;
@@ -2126,7 +2113,7 @@ fetch_and_execute(unsigned char *stream)
          case 0x6A: {register_l = register_d;} break;
          case 0x6B: {register_l = register_e;} break;
          case 0x6C: {register_l = register_h;} break;
-         case 0x6D: {register_l = register_l;} break;
+         case 0x6D: {/*register_l = register_l;*/} break;
          case 0x6E: {register_l = stream[REGISTER_HL];} break;
          case 0x6F: {register_l = register_a;} break;
 
@@ -2145,7 +2132,7 @@ fetch_and_execute(unsigned char *stream)
          case 0x7C: {register_a = register_h;} break;
          case 0x7D: {register_a = register_l;} break;
          case 0x7E: {register_a = stream[REGISTER_HL];} break;
-         case 0x7F: {register_a = register_a;} break;
+         case 0x7F: {/*register_a = register_a;*/} break;
 
          case 0x06: {register_b = stream[register_pc++];} break; // LD B, n
          case 0x0E: {register_c = stream[register_pc++];} break; // LD C, n
@@ -2579,7 +2566,7 @@ fetch_and_execute(unsigned char *stream)
 
          default:
          {
-            log("UNHANDLED OPCODE %X\n", opcode);
+            platform_log("UNHANDLED OPCODE %X\n", opcode);
             assert(0);
          } break;
       }

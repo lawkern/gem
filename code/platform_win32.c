@@ -8,10 +8,20 @@
 
 #include "gem.c"
 
+typedef struct
+{
+   size_t size;
+   unsigned char *memory;
+} Win32_File;
+
+#define WIN32_SECONDS_ELAPSED(start, end) ((float)((end).QuadPart - (start).QuadPart) \
+      / (float)win32_global_counts_per_second.QuadPart)
+
 static bool win32_global_is_running;
 static bool win32_global_is_paused;
-static Platform_File win32_global_rom;
+static Win32_File win32_global_rom;
 static unsigned char *win32_global_memory_map;
+static LARGE_INTEGER win32_global_counts_per_second;
 
 static HMENU win32_global_menu;
 static HWND win32_global_status_bar;
@@ -33,53 +43,7 @@ enum
 };
 
 static
-PLATFORM_FREE_FILE(free_file)
-{
-   free(file->memory);
-   file->size = 0;
-   file->memory = 0;
-}
-
-static
-PLATFORM_LOAD_FILE(load_file)
-{
-   Platform_File result = {0};
-
-   WIN32_FIND_DATAA file_data;
-   HANDLE find_file = FindFirstFileA(file_path, &file_data);
-   if(find_file == INVALID_HANDLE_VALUE)
-   {
-      log("ERROR: Failed to find file \"%s\".\n", file_path);
-      return(result);
-   }
-   FindClose(find_file);
-
-   size_t size = (file_data.nFileSizeHigh * (MAXDWORD + 1)) + file_data.nFileSizeLow;
-   result.memory = malloc(size);
-   if(!result.memory)
-   {
-      log("ERROR: Failed to allocate memory for file \"%s\".\n", file_path);
-      return(result);
-   }
-
-   HANDLE file = CreateFileA(file_path, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
-   DWORD bytes_read;
-   if(ReadFile(file, result.memory, size, &bytes_read, 0) && size == bytes_read)
-   {
-      result.size = size;
-   }
-   else
-   {
-      log("ERROR: Failed to read file \"%s.\"\n", file_path);
-      free_file(&result);
-   }
-   CloseHandle(file);
-
-   return(result);
-}
-
-static
-PLATFORM_LOG(log)
+PLATFORM_LOG(platform_log)
 {
    char message[1024];
 
@@ -91,6 +55,52 @@ PLATFORM_LOG(log)
    va_end(arguments);
 
    OutputDebugStringA(message);
+}
+
+static void
+win32_free_file(Win32_File *file)
+{
+   free(file->memory);
+   file->size = 0;
+   file->memory = 0;
+}
+
+static Win32_File
+win32_load_file(char *file_path)
+{
+   Win32_File result = {0};
+
+   WIN32_FIND_DATAA file_data;
+   HANDLE find_file = FindFirstFileA(file_path, &file_data);
+   if(find_file == INVALID_HANDLE_VALUE)
+   {
+      platform_log("ERROR: Failed to find file \"%s\".\n", file_path);
+      return(result);
+   }
+   FindClose(find_file);
+
+   size_t size = (file_data.nFileSizeHigh * (MAXDWORD + 1)) + file_data.nFileSizeLow;
+   result.memory = malloc(size);
+   if(!result.memory)
+   {
+      platform_log("ERROR: Failed to allocate memory for file \"%s\".\n", file_path);
+      return(result);
+   }
+
+   HANDLE file = CreateFileA(file_path, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+   DWORD bytes_read;
+   if(ReadFile(file, result.memory, size, &bytes_read, 0) && size == bytes_read)
+   {
+      result.size = size;
+   }
+   else
+   {
+      platform_log("ERROR: Failed to read file \"%s.\"\n", file_path);
+      win32_free_file(&result);
+   }
+   CloseHandle(file);
+
+   return(result);
 }
 
 static unsigned char *
@@ -128,27 +138,27 @@ win32_create_memory_map(unsigned char *cartridge_memory)
 static void
 win32_load_rom(HWND window, char *rom_path)
 {
-   log("Loading ROM at \"%s\"...\n", rom_path);
-   Platform_File rom = load_file(rom_path);
+   platform_log("Loading ROM at \"%s\"...\n", rom_path);
+   Win32_File rom = win32_load_file(rom_path);
 
    if(!rom.memory)
    {
-      log("ERROR: The loaded ROM was not updated\n", rom_path);
+      platform_log("ERROR: The loaded ROM was not updated\n", rom_path);
       return;
    }
 
-   log("Validating cartridge header...\n");
+   platform_log("Validating cartridge header...\n");
    if(!validate_cartridge_header(rom.memory, rom.size))
    {
-      log("ERROR: The loaded ROM was not updated\n", rom_path);
-      free_file(&rom);
+      platform_log("ERROR: The loaded ROM was not updated\n", rom_path);
+      win32_free_file(&rom);
       return;
    }
 
    if(rom.size < (0x100 + sizeof(Cartridge_Header)))
    {
-      log("ERROR: The loaded ROM was too small to contain a full header.\n", rom_path);
-      free_file(&rom);
+      platform_log("ERROR: The loaded ROM was too small to contain a full header.\n", rom_path);
+      win32_free_file(&rom);
       return;
    }
 
@@ -157,14 +167,14 @@ win32_load_rom(HWND window, char *rom_path)
    // TODO(law): Implement Memory Bank Controllers.
    if(header->ram_size != 0)
    {
-      log("ERROR: The Memory Bank Controller used by the loaded ROM is not supported.\n");
-      free_file(&rom);
+      platform_log("ERROR: The Memory Bank Controller used by the loaded ROM is not supported.\n");
+      win32_free_file(&rom);
       return;
    }
 
    if(win32_global_rom.memory)
    {
-      free_file(&win32_global_rom);
+      win32_free_file(&win32_global_rom);
    }
 
    if(win32_global_memory_map)
@@ -484,7 +494,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
                }
                else
                {
-                  log("No cartridge is currently loaded.\n");
+                  platform_log("No cartridge is currently loaded.\n");
                }
             }
             else if(wparam == 'P')
@@ -496,12 +506,12 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
                // NOTE(law): Print the disassembly.
                if(win32_global_rom.memory)
                {
-                  log("Parsing instruction stream...\n");
+                  platform_log("Parsing instruction stream...\n");
                   disassemble_stream(win32_global_memory_map, 0, 0x10000);
                }
                else
                {
-                  log("No cartridge is currently loaded.\n");
+                  platform_log("No cartridge is currently loaded.\n");
                }
             }
             else if(wparam == 'N')
@@ -509,16 +519,15 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
                // NOTE(law): Fetch and execute the next instruction.
                if(win32_global_rom.memory)
                {
-                  log("Fetching and executing instruction...\n");
+                  platform_log("Fetching and executing instruction...\n");
+                  disassemble_instruction(win32_global_memory_map, register_pc);
 
                   handle_interrupts(win32_global_memory_map);
                   fetch_and_execute(win32_global_memory_map);
-
-                  log("Done.\n");
                }
                else
                {
-                  log("No cartridge is currently loaded.\n");
+                  platform_log("No cartridge is currently loaded.\n");
                }
             }
             else
@@ -555,6 +564,7 @@ int
 WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int show_command)
 {
    InitCommonControls();
+   QueryPerformanceFrequency(&win32_global_counts_per_second);
 
    WNDCLASSEXA window_class = {0};
    window_class.cbSize = sizeof(window_class);
@@ -568,7 +578,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
    if(!RegisterClassExA(&window_class))
    {
-      log("ERROR: Failed to register a window class.\n");
+      platform_log("ERROR: Failed to register a window class.\n");
       return(1);
    }
 
@@ -587,7 +597,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
    if(!window)
    {
-      log("ERROR: Failed to create a window.\n");
+      platform_log("ERROR: Failed to create a window.\n");
       return(1);
    }
 
@@ -611,6 +621,12 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    // actually handled.
    win32_global_memory_map[0xFF44] = 0x90;
 
+   LARGE_INTEGER frame_start_count;
+   QueryPerformanceCounter(&frame_start_count);
+
+   float seconds_elapsed = 0;
+   unsigned int instructions_executed = 0;
+
    win32_global_is_running = true;
    while(win32_global_is_running)
    {
@@ -625,6 +641,21 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       {
          handle_interrupts(win32_global_memory_map);
          fetch_and_execute(win32_global_memory_map);
+      }
+
+      LARGE_INTEGER frame_end_count;
+      QueryPerformanceCounter(&frame_end_count);
+
+      seconds_elapsed += WIN32_SECONDS_ELAPSED(frame_start_count, frame_end_count);
+      frame_start_count = frame_end_count;
+
+      if(instructions_executed++ == 10000)
+      {
+         float average_us = (seconds_elapsed / (float)instructions_executed) * 1000.0f * 1000.0f;
+         platform_log("Average instruction time: %0.03fus\n", average_us);
+
+         seconds_elapsed = 0;
+         instructions_executed = 0;
       }
    }
 
