@@ -265,6 +265,8 @@ disassemble_instruction(unsigned char *stream, unsigned int offset)
    unsigned char opcode = stream[offset++];
    if(opcode == 0xCB)
    {
+      opcode = stream[offset++];
+
       // NOTE(law): Parse prefix instructions.
       switch(opcode)
       {
@@ -622,13 +624,13 @@ disassemble_instruction(unsigned char *stream, unsigned int offset)
          case 0x6E: {log("LD L, (HL)          ");} break;
          case 0x6F: {log("LD L, A             ");} break;
 
-         case 0x70: {log("LD t(HL), B         ");} break;
-         case 0x71: {log("LD t(HL), C         ");} break;
-         case 0x72: {log("LD t(HL), D         ");} break;
-         case 0x73: {log("LD t(HL), E         ");} break;
-         case 0x74: {log("LD t(HL), H         ");} break;
-         case 0x75: {log("LD t(HL), L         ");} break;
-         case 0x77: {log("LD t(HL), A         ");} break;
+         case 0x70: {log("LD (HL), B          ");} break;
+         case 0x71: {log("LD (HL), C          ");} break;
+         case 0x72: {log("LD (HL), D          ");} break;
+         case 0x73: {log("LD (HL), E          ");} break;
+         case 0x74: {log("LD (HL), H          ");} break;
+         case 0x75: {log("LD (HL), L          ");} break;
+         case 0x77: {log("LD (HL), A          ");} break;
 
          case 0x78: {log("LD A, B             ");} break;
          case 0x79: {log("LD A, C             ");} break;
@@ -1407,8 +1409,8 @@ call(unsigned char *stream, bool should_jump)
 
    if(should_jump)
    {
-      stream[--register_sp] = address_high;
-      stream[--register_sp] = address_low;
+      stream[--register_sp] = (register_pc >> 8);
+      stream[--register_sp] = (register_pc & 0xFF);
 
       unsigned short address = ((unsigned short)address_high << 8) | (unsigned short)address_low;
       register_pc = address;

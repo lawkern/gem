@@ -605,6 +605,12 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    // command line argument.
    win32_load_rom(window, command_line);
 
+   // TODO(law): This value refers the current horizontal line, and a value of
+   // 0x90 represents the beginning of a VBlank period. Since the boot ROM waits
+   // on VBlank for the logo processing, just hard code it until rendering is
+   // actually handled.
+   win32_global_memory_map[0xFF44] = 0x90;
+
    win32_global_is_running = true;
    while(win32_global_is_running)
    {
