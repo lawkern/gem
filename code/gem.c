@@ -26,7 +26,7 @@ static PLATFORM_LOG(platform_log);
 
 #define ARRAY_LENGTH(array) (sizeof(array) / sizeof((array)[0]))
 
-unsigned int palette[] = {0xE0F8D0, 0x88C070, 0x346856, 0x081820};
+unsigned int colors[] = {0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820};
 
 static unsigned char boot_rom[] =
 {
@@ -2627,7 +2627,7 @@ clear(Platform_Bitmap *bitmap)
    {
       for(unsigned int x = 0; x < bitmap->width; ++x)
       {
-         bitmap->memory[(bitmap->width * y) + x] = palette[0];
+         bitmap->memory[(bitmap->width * y) + x] = colors[0];
       }
    }
 }
@@ -2635,6 +2635,14 @@ clear(Platform_Bitmap *bitmap)
 static void
 render_tiles(Platform_Bitmap *bitmap, unsigned char *stream, int tile_offset)
 {
+   unsigned char palette_data = stream[0xFF47];
+
+   unsigned int palette[4];
+   palette[0] = colors[(palette_data >> 6) & 0x3];
+   palette[1] = colors[(palette_data >> 4) & 0x3];
+   palette[2] = colors[(palette_data >> 2) & 0x3];
+   palette[3] = colors[(palette_data >> 0) & 0x3];
+
    unsigned char *tiles = stream + tile_offset;
    for(unsigned int tile_y = 0; tile_y < TILES_PER_SCREEN_HEIGHT; ++tile_y)
    {
@@ -2658,6 +2666,9 @@ render_tiles(Platform_Bitmap *bitmap, unsigned char *stream, int tile_offset)
 
                unsigned int bitmap_y = (tile_y * TILE_PIXEL_DIM) + pixel_y;
                unsigned int bitmap_x = (tile_x * TILE_PIXEL_DIM) + pixel_x;
+
+
+
                bitmap->memory[(bitmap->width * bitmap_y) + bitmap_x] = palette[color_index];
             }
          }
