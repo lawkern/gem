@@ -26,7 +26,21 @@ static PLATFORM_LOG(platform_log);
 
 #define ARRAY_LENGTH(array) (sizeof(array) / sizeof((array)[0]))
 
-unsigned int colors[] = {0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820};
+typedef enum
+{
+   MONOCHROME_COLOR_OPTION_DMG,
+   MONOCHROME_COLOR_OPTION_MGB,
+   MONOCHROME_COLOR_OPTION_LIGHT,
+
+   MONOCHROME_COLOR_OPTION_COUNT,
+} Monochrome_Color_Option;
+
+unsigned int monochrome_color_options[][4] =
+{
+   {0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820},
+   {0xFFE0DBCD, 0xFFA89F94, 0xFF706B66, 0xFF2B2B26},
+   {0xFF65F2BA, 0xFF39C28C, 0xFF30B37F, 0xFF0E7F54},
+};
 
 static unsigned char boot_rom[] =
 {
@@ -2621,21 +2635,28 @@ handle_interrupts(unsigned char *stream)
 }
 
 static void
-clear(Platform_Bitmap *bitmap)
+clear(Platform_Bitmap *bitmap, Monochrome_Color_Option color_option)
 {
+   assert(ARRAY_LENGTH(monochrome_color_options) == MONOCHROME_COLOR_OPTION_COUNT);
+   unsigned int color = monochrome_color_options[color_option][0];
+
    for(unsigned int y = 0; y < bitmap->height; ++y)
    {
       for(unsigned int x = 0; x < bitmap->width; ++x)
       {
-         bitmap->memory[(bitmap->width * y) + x] = colors[0];
+         bitmap->memory[(bitmap->width * y) + x] = color;
       }
    }
 }
 
 static void
-render_tiles(Platform_Bitmap *bitmap, unsigned char *stream, int tile_offset, bool is_object)
+render_tiles(Platform_Bitmap *bitmap, unsigned char *stream, int tile_offset,
+             bool is_object, Monochrome_Color_Option color_option)
 {
-   clear(bitmap);
+   assert(ARRAY_LENGTH(monochrome_color_options) == MONOCHROME_COLOR_OPTION_COUNT);
+   unsigned int *colors = monochrome_color_options[color_option];
+
+   clear(bitmap, color_option);
 
    unsigned char palette_data = stream[0xFF47];
 

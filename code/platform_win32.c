@@ -25,6 +25,7 @@ static LARGE_INTEGER win32_global_counts_per_second;
 
 static BITMAPINFO win32_global_bitmap_info;
 static Platform_Bitmap win32_global_bitmap;
+static Monochrome_Color_Option win32_global_color_option;
 
 static HMENU win32_global_menu;
 static HWND win32_global_status_bar;
@@ -37,6 +38,9 @@ enum
 {
    WIN32_MENU_FILE_OPEN = 9001,
    WIN32_MENU_FILE_EXIT,
+   WIN32_MENU_VIEW_COLOR_DMG,
+   WIN32_MENU_VIEW_COLOR_MGB,
+   WIN32_MENU_VIEW_COLOR_LIGHT,
    WIN32_MENU_VIEW_RESOLUTION_1X,
    WIN32_MENU_VIEW_RESOLUTION_2X,
    WIN32_MENU_VIEW_RESOLUTION_4X,
@@ -387,6 +391,11 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          AppendMenu(win32_global_menu, MF_STRING|MF_POPUP, (UINT_PTR)file_menu, "&File");
 
          HMENU view_menu = CreatePopupMenu();
+
+         AppendMenu(view_menu, MF_STRING|MF_CHECKED, WIN32_MENU_VIEW_COLOR_DMG, "Dot Matrix Color Scheme");
+         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_COLOR_MGB, "Pocket Color Scheme");
+         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_COLOR_LIGHT, "Light Color Scheme");
+         AppendMenu(view_menu, MF_SEPARATOR, 0, 0);
          AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_1X, "&1x Resolution (160 x 144)\t1");
          AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_2X, "&2x Resolution (320 x 288)\t2");
          AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_4X, "&4x Resolution (640 x 576)\t4");
@@ -421,6 +430,36 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
             {
                win32_global_is_running = false;
                PostQuitMessage(0);
+            } break;
+
+            case WIN32_MENU_VIEW_COLOR_DMG:
+            {
+               win32_global_color_option = MONOCHROME_COLOR_OPTION_DMG;
+               CheckMenuRadioItem(win32_global_menu,
+                                  WIN32_MENU_VIEW_COLOR_DMG,
+                                  WIN32_MENU_VIEW_COLOR_LIGHT,
+                                  WIN32_MENU_VIEW_COLOR_DMG,
+                                  MF_BYCOMMAND);
+            } break;
+
+            case WIN32_MENU_VIEW_COLOR_MGB:
+            {
+               win32_global_color_option = MONOCHROME_COLOR_OPTION_MGB;
+               CheckMenuRadioItem(win32_global_menu,
+                                  WIN32_MENU_VIEW_COLOR_DMG,
+                                  WIN32_MENU_VIEW_COLOR_LIGHT,
+                                  WIN32_MENU_VIEW_COLOR_MGB,
+                                  MF_BYCOMMAND);
+            } break;
+
+            case WIN32_MENU_VIEW_COLOR_LIGHT:
+            {
+               win32_global_color_option = MONOCHROME_COLOR_OPTION_LIGHT;
+               CheckMenuRadioItem(win32_global_menu,
+                                  WIN32_MENU_VIEW_COLOR_DMG,
+                                  WIN32_MENU_VIEW_COLOR_LIGHT,
+                                  WIN32_MENU_VIEW_COLOR_LIGHT,
+                                  MF_BYCOMMAND);
             } break;
 
             case WIN32_MENU_VIEW_RESOLUTION_1X:
@@ -520,6 +559,17 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
             else if(wparam == 'P')
             {
                win32_global_is_paused = !win32_global_is_paused;
+            }
+            else if(wparam == 'C')
+            {
+               win32_global_color_option++;
+               if(win32_global_color_option >= MONOCHROME_COLOR_OPTION_COUNT)
+               {
+                  win32_global_color_option = 0;
+               }
+
+               WPARAM param = WIN32_MENU_VIEW_COLOR_DMG + win32_global_color_option;
+               SendMessage(window, WM_COMMAND, param, 0);
             }
             else if(wparam == 'D')
             {
@@ -659,7 +709,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    float target_seconds_per_frame = 1.0f / 59.7f;
    float frame_seconds_elapsed = 0;
 
-   clear(&win32_global_bitmap);
+   clear(&win32_global_bitmap, win32_global_color_option);
 
    LARGE_INTEGER frame_start_count;
    QueryPerformanceCounter(&frame_start_count);
@@ -678,7 +728,8 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       {
          static int tile_offset = 0x8000;
          static bool is_object = true;
-         render_tiles(&win32_global_bitmap, win32_global_memory_map, tile_offset, is_object);
+         render_tiles(&win32_global_bitmap, win32_global_memory_map, tile_offset,
+                      is_object, win32_global_color_option);
 
          tile_offset += 16;
          if(tile_offset >= 0x97FF)
