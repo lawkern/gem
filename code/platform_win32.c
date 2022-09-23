@@ -656,11 +656,13 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    // command line argument.
    win32_load_rom(window, command_line);
 
+   float target_seconds_per_frame = 1.0f / 59.7f;
+   float frame_seconds_elapsed = 0;
+
+   clear(&win32_global_bitmap);
+
    LARGE_INTEGER frame_start_count;
    QueryPerformanceCounter(&frame_start_count);
-
-   float seconds_elapsed = 0;
-   unsigned int instructions_executed = 0;
 
    win32_global_is_running = true;
    while(win32_global_is_running)
@@ -674,16 +676,13 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
       if(!win32_global_is_paused && win32_global_memory_map)
       {
-         handle_interrupts(win32_global_memory_map);
-         fetch_and_execute(win32_global_memory_map);
-      }
+         static int tile_offset = 0x8000;
+         render_tiles(&win32_global_bitmap, win32_global_memory_map, tile_offset);
 
-      // NOTE(law): Draw pixels into bitmap.
-      for(unsigned int y = 0; y < bitmap.height; ++y)
-      {
-         for(unsigned int x = 0; x < bitmap.width; ++x)
+         tile_offset += 16;
+         if(tile_offset >= 0x97FF)
          {
-            bitmap.memory[(bitmap.width * y) + x] = 0xFFE0F8D0;
+            tile_offset = 0;
          }
       }
 
@@ -696,17 +695,26 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       LARGE_INTEGER frame_end_count;
       QueryPerformanceCounter(&frame_end_count);
 
-      seconds_elapsed += WIN32_SECONDS_ELAPSED(frame_start_count, frame_end_count);
+      unsigned int instructions_executed = 0;
+      frame_seconds_elapsed = WIN32_SECONDS_ELAPSED(frame_start_count, frame_end_count);
+      while(frame_seconds_elapsed < target_seconds_per_frame)
+      {
+         if(!win32_global_is_paused && win32_global_memory_map)
+         {
+            handle_interrupts(win32_global_memory_map);
+            fetch_and_execute(win32_global_memory_map);
+
+            instructions_executed++;
+         }
+
+         QueryPerformanceCounter(&frame_end_count);
+         frame_seconds_elapsed = WIN32_SECONDS_ELAPSED(frame_start_count, frame_end_count);
+      }
       frame_start_count = frame_end_count;
 
-      if(instructions_executed++ == 10000)
-      {
-         float average_us = (seconds_elapsed / (float)instructions_executed) * 1000.0f * 1000.0f;
-         platform_log("Average instruction time: %0.03fus\n", average_us);
-
-         seconds_elapsed = 0;
-         instructions_executed = 0;
-      }
+      float average_us = (frame_seconds_elapsed * 1000.0f * 1000.0f) / (float)instructions_executed;
+      platform_log("Frame time: %0.03fms, ", frame_seconds_elapsed * 1000.0f);
+      platform_log("Average instruction time: %0.03fus\n", average_us);
    }
 
    return(0);

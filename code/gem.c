@@ -10,6 +10,10 @@
 #define GEM_BASE_RESOLUTION_WIDTH 160
 #define GEM_BASE_RESOLUTION_HEIGHT 144
 
+#define TILE_PIXEL_DIM 8
+#define TILES_PER_SCREEN_WIDTH  (GEM_BASE_RESOLUTION_WIDTH  / TILE_PIXEL_DIM)
+#define TILES_PER_SCREEN_HEIGHT (GEM_BASE_RESOLUTION_HEIGHT / TILE_PIXEL_DIM)
+
 typedef struct
 {
    unsigned int width;
@@ -21,6 +25,8 @@ typedef struct
 static PLATFORM_LOG(platform_log);
 
 #define ARRAY_LENGTH(array) (sizeof(array) / sizeof((array)[0]))
+
+unsigned int palette[] = {0xE0F8D0, 0x88C070, 0x346856, 0x081820};
 
 static unsigned char boot_rom[] =
 {
@@ -2611,5 +2617,50 @@ handle_interrupts(unsigned char *stream)
 
       unsigned short isr_addresses[] = {0x40, 0x48, 0x50, 0x58, 0x60};
       register_pc = isr_addresses[bit_index];
+   }
+}
+
+static void
+clear(Platform_Bitmap *bitmap)
+{
+   for(unsigned int y = 0; y < bitmap->height; ++y)
+   {
+      for(unsigned int x = 0; x < bitmap->width; ++x)
+      {
+         bitmap->memory[(bitmap->width * y) + x] = palette[0];
+      }
+   }
+}
+
+static void
+render_tiles(Platform_Bitmap *bitmap, unsigned char *stream, int tile_offset)
+{
+   unsigned char *tiles = stream + tile_offset;
+   for(unsigned int tile_y = 0; tile_y < TILES_PER_SCREEN_HEIGHT; ++tile_y)
+   {
+      for(unsigned int tile_x = 0; tile_x < TILES_PER_SCREEN_WIDTH; ++tile_x)
+      {
+         unsigned int tile_index = (TILES_PER_SCREEN_WIDTH * tile_y) + tile_x;
+         unsigned char *tile = tiles + (2 * tile_index * TILE_PIXEL_DIM);
+
+         for(unsigned int pixel_y = 0; pixel_y < TILE_PIXEL_DIM; ++pixel_y)
+         {
+            unsigned char byte0 = tile[(2 * pixel_y) + 0];
+            unsigned char byte1 = tile[(2 * pixel_y) + 1];
+
+            for(unsigned int pixel_x = 0; pixel_x < TILE_PIXEL_DIM; ++pixel_x)
+            {
+               unsigned int bit_offset = TILE_PIXEL_DIM - 1 - pixel_x;
+               unsigned char low_bit  = (byte0 >> bit_offset) & 0x1;
+               unsigned char high_bit = (byte1 >> bit_offset) & 0x1;
+
+               unsigned int color_index = (high_bit << 1) | low_bit;
+
+               unsigned int bitmap_y = (tile_y * TILE_PIXEL_DIM) + pixel_y;
+               unsigned int bitmap_x = (tile_x * TILE_PIXEL_DIM) + pixel_x;
+               bitmap->memory[(bitmap->width * bitmap_y) + bitmap_x] = palette[color_index];
+            }
+         }
+      }
    }
 }
