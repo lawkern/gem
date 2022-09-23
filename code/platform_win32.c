@@ -677,12 +677,14 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       if(!win32_global_is_paused && win32_global_memory_map)
       {
          static int tile_offset = 0x8000;
-         render_tiles(&win32_global_bitmap, win32_global_memory_map, tile_offset);
+         static bool is_object = true;
+         render_tiles(&win32_global_bitmap, win32_global_memory_map, tile_offset, is_object);
 
          tile_offset += 16;
          if(tile_offset >= 0x97FF)
          {
             tile_offset = 0;
+            is_object = !is_object;
          }
       }
 

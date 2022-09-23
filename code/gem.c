@@ -2633,8 +2633,10 @@ clear(Platform_Bitmap *bitmap)
 }
 
 static void
-render_tiles(Platform_Bitmap *bitmap, unsigned char *stream, int tile_offset)
+render_tiles(Platform_Bitmap *bitmap, unsigned char *stream, int tile_offset, bool is_object)
 {
+   clear(bitmap);
+
    unsigned char palette_data = stream[0xFF47];
 
    unsigned int palette[4];
@@ -2667,9 +2669,10 @@ render_tiles(Platform_Bitmap *bitmap, unsigned char *stream, int tile_offset)
                unsigned int bitmap_y = (tile_y * TILE_PIXEL_DIM) + pixel_y;
                unsigned int bitmap_x = (tile_x * TILE_PIXEL_DIM) + pixel_x;
 
-
-
-               bitmap->memory[(bitmap->width * bitmap_y) + bitmap_x] = palette[color_index];
+               if(!(is_object && (color_index == 0)))
+               {
+                  bitmap->memory[(bitmap->width * bitmap_y) + bitmap_x] = palette[color_index];
+               }
             }
          }
       }
