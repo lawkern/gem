@@ -134,7 +134,7 @@ linux_process_input(XEvent event)
             if(map.stream)
             {
                platform_log("Parsing instruction stream...\n");
-               disassemble_stream(map.stream, 0, 0x10000);
+               disassemble_stream(0, 0x10000);
             }
             else
             {
@@ -147,10 +147,10 @@ linux_process_input(XEvent event)
             if(map.stream)
             {
                platform_log("Fetching and executing instruction...\n");
-               disassemble_instruction(map.stream, register_pc);
+               disassemble_instruction(register_pc);
 
-               handle_interrupts(map.stream);
-               fetch_and_execute(map.stream);
+               handle_interrupts();
+               fetch_and_execute();
             }
             else
             {
@@ -464,8 +464,8 @@ main(int argument_count, char **arguments)
                memcpy(map.stream, map.stream_0x100, sizeof(boot_rom));
             }
 
-            handle_interrupts(map.stream);
-            fetch_and_execute(map.stream);
+            handle_interrupts();
+            fetch_and_execute();
 
             instructions_executed++;
          }
