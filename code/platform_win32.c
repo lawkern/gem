@@ -8,24 +8,17 @@
 
 #include "gem.c"
 
-typedef struct
-{
-   size_t size;
-   unsigned char *memory;
-} Win32_File;
-
 #define WIN32_SECONDS_ELAPSED(start, end) ((float)((end).QuadPart - (start).QuadPart) \
       / (float)win32_global_counts_per_second.QuadPart)
 
 static bool win32_global_is_running;
 static bool win32_global_is_paused;
-static Win32_File win32_global_rom;
-static unsigned char *win32_global_memory_map;
 static LARGE_INTEGER win32_global_counts_per_second;
-
-static BITMAPINFO win32_global_bitmap_info;
-static Platform_Bitmap win32_global_bitmap;
 static Monochrome_Color_Option win32_global_color_option;
+
+static Memory_Arena *win32_global_arena;
+static Platform_Bitmap *win32_global_bitmap;
+static BITMAPINFO *win32_global_bitmap_info;
 
 static HMENU win32_global_menu;
 static HWND win32_global_status_bar;
@@ -64,18 +57,18 @@ PLATFORM_LOG(platform_log)
    OutputDebugStringA(message);
 }
 
-static void
-win32_free_file(Win32_File *file)
+static
+PLATFORM_FREE_FILE(platform_free_file)
 {
    free(file->memory);
    file->size = 0;
    file->memory = 0;
 }
 
-static Win32_File
-win32_load_file(char *file_path)
+static
+PLATFORM_LOAD_FILE(platform_load_file)
 {
-   Win32_File result = {0};
+   Platform_File result = {0};
 
    WIN32_FIND_DATAA file_data;
    HANDLE find_file = FindFirstFileA(file_path, &file_data);
@@ -103,108 +96,24 @@ win32_load_file(char *file_path)
    else
    {
       platform_log("ERROR: Failed to read file \"%s.\"\n", file_path);
-      win32_free_file(&result);
+      platform_free_file(&result);
    }
    CloseHandle(file);
 
    return(result);
 }
 
-static unsigned char *
-win32_create_memory_map(unsigned char *cartridge_memory)
-{
-   unsigned char *result = malloc(0x10000);
-
-   Cartridge_Header *header = get_cartridge_header(cartridge_memory);
-   ZeroMemory(result, 0x10000);
-
-   // TODO(law): Support the remaining cartridge types!
-   switch(header->cartridge_type)
-   {
-      case 0x00: // ROM ONLY
-      {
-         // NOTE(law): The cartridge contains 32KiB of ROM, which can be mapped
-         // directly into 0x0000 to 0x7FFF.
-
-         memcpy(result, cartridge_memory, 0x8000);
-      } break;
-
-      default:
-      {
-         assert(!"UNHANDLED CARTRIDGE TYPE");
-      } break;
-   }
-
-   // TODO(law): Set the boot ROM up in such a way that it can be unmapped after
-   // it is executed.
-   memcpy(result, boot_rom, sizeof(boot_rom));
-
-   return(result);
-}
-
 static void
-win32_load_rom(HWND window, char *rom_path)
+win32_load_cartridge(Memory_Arena *arena, HWND window, char *file_path)
 {
-   platform_log("Loading ROM at \"%s\"...\n", rom_path);
-   Win32_File rom = win32_load_file(rom_path);
-
-   if(!rom.memory)
-   {
-      platform_log("ERROR: The loaded ROM was not updated\n", rom_path);
-      return;
-   }
-
-   platform_log("Validating cartridge header...\n");
-   if(!validate_cartridge_header(rom.memory, rom.size))
-   {
-      platform_log("ERROR: The loaded ROM was not updated\n", rom_path);
-      win32_free_file(&rom);
-      return;
-   }
-
-   if(rom.size < (0x100 + sizeof(Cartridge_Header)))
-   {
-      platform_log("ERROR: The loaded ROM was too small to contain a full header.\n", rom_path);
-      win32_free_file(&rom);
-      return;
-   }
-
-   Cartridge_Header *header = get_cartridge_header(rom.memory);
-
-   // TODO(law): Implement Memory Bank Controllers.
-   if(header->ram_size != 0)
-   {
-      platform_log("ERROR: The Memory Bank Controller used by the loaded ROM is not supported.\n");
-      win32_free_file(&rom);
-      return;
-   }
-
-   if(win32_global_rom.memory)
-   {
-      win32_free_file(&win32_global_rom);
-   }
-
-   if(win32_global_memory_map)
-   {
-      free(win32_global_memory_map);
-      win32_global_memory_map = 0;
-   }
-
-   win32_global_rom = rom;
-   win32_global_memory_map = win32_create_memory_map(rom.memory);
-
-   // TODO(law): This value refers the current horizontal line, and a value of
-   // 0x90 represents the beginning of a VBlank period. Since the boot ROM waits
-   // on VBlank for the logo processing, just hard code it until rendering is
-   // actually handled.
-   win32_global_memory_map[0xFF44] = 0x90;
+   load_cartridge(arena, file_path);
 
    HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
-   SendMessage(status_bar, WM_SETTEXT, 0, (LPARAM)rom_path);
+   SendMessage(status_bar, WM_SETTEXT, 0, (LPARAM)file_path);
 }
 
 static void
-win32_open_file_dialog(HWND window)
+win32_open_file_dialog(Memory_Arena *arena, HWND window)
 {
 
    // TODO(law): We want something better than MAX_PATH here.
@@ -221,7 +130,7 @@ win32_open_file_dialog(HWND window)
 
    if(GetOpenFileName(&open_file_name))
    {
-      win32_load_rom(window, file_name);
+      win32_load_cartridge(arena, window, file_name);
    }
 }
 
@@ -319,7 +228,7 @@ win32_set_resolution_scale(HWND window, unsigned int scale)
 }
 
 static void
-win32_display_bitmap(HWND window, HDC device_context)
+win32_display_bitmap(Platform_Bitmap bitmap, HWND window, HDC device_context)
 {
    RECT client_rect;
    GetClientRect(window, &client_rect);
@@ -365,11 +274,8 @@ win32_display_bitmap(HWND window, HDC device_context)
 
    StretchDIBits(device_context,
                  gutter_width, gutter_height, target_width, target_height, // Destination
-                 0, 0, win32_global_bitmap.width, win32_global_bitmap.height, // Source
-                 win32_global_bitmap.memory,
-                 &win32_global_bitmap_info,
-                 DIB_RGB_COLORS,
-                 SRCCOPY);
+                 0, 0, bitmap.width, bitmap.height, // Source
+                 bitmap.memory, win32_global_bitmap_info, DIB_RGB_COLORS, SRCCOPY);
 }
 
 LRESULT
@@ -423,7 +329,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          {
             case WIN32_MENU_FILE_OPEN:
             {
-               win32_open_file_dialog(window);
+               win32_open_file_dialog(win32_global_arena, window);
             } break;
 
             case WIN32_MENU_FILE_EXIT:
@@ -541,15 +447,15 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 
                if(ctrl_key_pressed)
                {
-                  win32_open_file_dialog(window);
+                  win32_open_file_dialog(win32_global_arena, window);
                }
             }
             else if(wparam == 'H')
             {
                // NOTE(law): Print the contents of the cartridge header.
-               if(win32_global_rom.memory)
+               if(map.stream)
                {
-                  dump_cartridge_header(win32_global_rom.memory);
+                  dump_cartridge_header(map.stream);
                }
                else
                {
@@ -574,10 +480,10 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
             else if(wparam == 'D')
             {
                // NOTE(law): Print the disassembly.
-               if(win32_global_rom.memory)
+               if(map.stream)
                {
                   platform_log("Parsing instruction stream...\n");
-                  disassemble_stream(win32_global_memory_map, 0, 0x10000);
+                  disassemble_stream(map.stream, 0, 0x10000);
                }
                else
                {
@@ -587,13 +493,13 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
             else if(wparam == 'N')
             {
                // NOTE(law): Fetch and execute the next instruction.
-               if(win32_global_rom.memory)
+               if(map.stream)
                {
                   platform_log("Fetching and executing instruction...\n");
-                  disassemble_instruction(win32_global_memory_map, register_pc);
+                  disassemble_instruction(map.stream, register_pc);
 
-                  handle_interrupts(win32_global_memory_map);
-                  fetch_and_execute(win32_global_memory_map);
+                  handle_interrupts(map.stream);
+                  fetch_and_execute(map.stream);
                }
                else
                {
@@ -616,7 +522,8 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          PAINTSTRUCT paint;
          HDC device_context = BeginPaint(window, &paint);
 
-         win32_display_bitmap(window, device_context);
+         Platform_Bitmap bitmap = *win32_global_bitmap;
+         win32_display_bitmap(bitmap, window, device_context);
 
          ReleaseDC(window, device_context);
       } break;
@@ -671,6 +578,13 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       return(1);
    }
 
+   // NOTE(law): Perform general dynamic allocations up front.
+   Memory_Arena arena = {0};
+   arena.size = MEBIBYTES(64);
+   arena.base_address = VirtualAlloc(0, arena.size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+
+   win32_global_arena = &arena;
+
    // NOTE(law) Set up the rendering bitmap.
    Platform_Bitmap bitmap = {GEM_BASE_RESOLUTION_WIDTH, GEM_BASE_RESOLUTION_HEIGHT};
 
@@ -688,8 +602,8 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
    BITMAPINFO bitmap_info = {bitmap_header};
 
-   win32_global_bitmap = bitmap;
-   win32_global_bitmap_info = bitmap_info;
+   win32_global_bitmap = &bitmap;
+   win32_global_bitmap_info = &bitmap_info;
 
    // NOTE(law): Display the created window.
    ShowWindow(window, show_command);
@@ -704,12 +618,12 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
    // NOTE(law): Attempt to load a ROM in case a path to one was provided as the
    // command line argument.
-   win32_load_rom(window, command_line);
+    win32_load_cartridge(&arena, window, command_line);
 
    float target_seconds_per_frame = 1.0f / 59.7f;
    float frame_seconds_elapsed = 0;
 
-   clear(&win32_global_bitmap, win32_global_color_option);
+   clear(&bitmap, win32_global_color_option);
 
    LARGE_INTEGER frame_start_count;
    QueryPerformanceCounter(&frame_start_count);
@@ -724,38 +638,47 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
          DispatchMessage(&message);
       }
 
-      if(!win32_global_is_paused && win32_global_memory_map)
+      if(!win32_global_is_paused && map.stream)
       {
-         static int tile_offset = 0x8000;
+         // NOTE(law): For now, just loop over the entire memory map and display
+         // all the data as tiles.
+         static int tile_offset = 0; // VRAM_TILE_BLOCK_0
          static bool is_object = true;
-         render_tiles(&win32_global_bitmap, win32_global_memory_map, tile_offset,
-                      is_object, win32_global_color_option);
+         render_tiles(&bitmap, map.stream, tile_offset, is_object, win32_global_color_option);
 
          tile_offset += 16;
-         if(tile_offset >= 0x97FF)
+         if(tile_offset >= 0x10000 || register_pc == 0)
          {
-            tile_offset = 0;
+            tile_offset = 0; // VRAM_TILE_BLOCK_0
             is_object = !is_object;
          }
       }
 
       // NOTE(law): Blit bitmap to screen.
       HDC device_context = GetDC(window);
-      win32_display_bitmap(window, device_context);
+      win32_display_bitmap(bitmap, window, device_context);
       ReleaseDC(window, device_context);
 
       // NOTE(law): Calculate elapsed frame time.
       LARGE_INTEGER frame_end_count;
       QueryPerformanceCounter(&frame_end_count);
 
+
       unsigned int instructions_executed = 0;
       frame_seconds_elapsed = WIN32_SECONDS_ELAPSED(frame_start_count, frame_end_count);
+
       while(frame_seconds_elapsed < target_seconds_per_frame)
       {
-         if(!win32_global_is_paused && win32_global_memory_map)
+         if(!win32_global_is_paused && map.stream)
          {
-            handle_interrupts(win32_global_memory_map);
-            fetch_and_execute(win32_global_memory_map);
+            if(!map.boot_complete && map.stream[0xFF50])
+            {
+               map.boot_complete = true;
+               memcpy(map.stream, map.stream_0x100, sizeof(boot_rom));
+            }
+
+            handle_interrupts(map.stream);
+            fetch_and_execute(map.stream);
 
             instructions_executed++;
          }

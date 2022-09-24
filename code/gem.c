@@ -14,6 +14,26 @@
 #define TILES_PER_SCREEN_WIDTH  (GEM_BASE_RESOLUTION_WIDTH  / TILE_PIXEL_DIM)
 #define TILES_PER_SCREEN_HEIGHT (GEM_BASE_RESOLUTION_HEIGHT / TILE_PIXEL_DIM)
 
+#define VRAM_TILE_BLOCK_0 0x8000
+#define VRAM_TILE_BLOCK_1 0x8800
+#define VRAM_TILE_BLOCK_2 0x9000
+
+static unsigned char register_a;
+static unsigned char register_b;
+static unsigned char register_c;
+static unsigned char register_d;
+static unsigned char register_e;
+static unsigned char register_f;
+static unsigned char register_h;
+static unsigned char register_l;
+
+static unsigned short register_pc;
+static unsigned short register_sp;
+
+static bool halt;
+static bool stop;
+static bool ime;
+
 typedef struct
 {
    unsigned int width;
@@ -21,10 +41,48 @@ typedef struct
    unsigned int *memory;
 } Platform_Bitmap;
 
+typedef struct
+{
+   size_t size;
+   unsigned char *memory;
+} Platform_File;
+
+typedef struct
+{
+   unsigned char *base_address;
+   size_t size;
+   size_t used;
+} Memory_Arena;
+
+typedef struct
+{
+   size_t size;
+   unsigned char *memory;
+} Memory_Bank;
+
+static struct
+{
+   unsigned char *stream;
+
+   bool boot_complete;
+   unsigned char *stream_0x100;
+
+   Memory_Bank rom_banks[16];
+   Memory_Bank ram_banks[16];
+} map;
+
+
 #define PLATFORM_LOG(name) void name(char *format, ...)
+#define PLATFORM_FREE_FILE(name) void name(Platform_File *file)
+#define PLATFORM_LOAD_FILE(name) Platform_File name(char *file_path)
+
 static PLATFORM_LOG(platform_log);
+static PLATFORM_FREE_FILE(platform_free_file);
+static PLATFORM_LOAD_FILE(platform_load_file);
 
 #define ARRAY_LENGTH(array) (sizeof(array) / sizeof((array)[0]))
+#define KIBIBYTES(value) (1024LL * (value))
+#define MEBIBYTES(value) (1024LL * KIBIBYTES(value))
 
 typedef enum
 {
@@ -61,6 +119,25 @@ static unsigned char boot_rom[] =
    0x21, 0x04, 0x01, 0x11, 0xA8, 0x00, 0x1A, 0x13, 0xBE, 0x20, 0xFE, 0x23, 0x7D, 0xFE, 0x34, 0x20,
    0xF5, 0x06, 0x19, 0x78, 0x86, 0x23, 0x05, 0x20, 0xFB, 0x86, 0x20, 0xFE, 0x3E, 0x01, 0xE0, 0x50,
 };
+
+#define ALLOCATE(arena, Type) allocate((arena), sizeof(Type))
+
+static void *
+allocate(Memory_Arena *arena, size_t size)
+{
+   assert(size <= (arena->size - arena->used));
+
+   void *result = arena->base_address + arena->used;
+   arena->used += size;
+
+   return(result);
+}
+
+static void
+reset_arena(Memory_Arena *arena)
+{
+   arena->used = 0;
+}
 
 static unsigned short
 endian_swap16(unsigned short value)
@@ -268,6 +345,92 @@ void dump_cartridge_header(unsigned char *stream)
    platform_log("  MASK ROM VERSION NUMBER: %#x\n", header->mask_rom_version_number);
    platform_log("  HEADER CHECKSUM: 0x%02X\n", header->header_checksum);
    platform_log("  GLOBAL CHECKSUM: 0x%04X\n", header->global_checksum);
+}
+
+static void
+load_cartridge(Memory_Arena *arena, char *file_path)
+{
+   reset_arena(arena);
+   register_pc = 0;
+
+   platform_log("Loading ROM at \"%s\"...\n", file_path);
+   Platform_File rom = platform_load_file(file_path);
+
+   if(!rom.memory)
+   {
+      platform_log("ERROR: The ROM \"%s\" was not loaded.\n", file_path);
+      return;
+   }
+
+   platform_log("Validating cartridge header...\n");
+   if(!validate_cartridge_header(rom.memory, rom.size))
+   {
+      platform_log("ERROR: Invalid cartridge header - the ROM was not loaded.\n");
+      platform_free_file(&rom);
+      return;
+   }
+
+   if(rom.size < (sizeof(boot_rom) + sizeof(Cartridge_Header)))
+   {
+      platform_log("ERROR: The file was too small to contain a cartridge header - the ROM was not loaded.\n");
+      platform_free_file(&rom);
+      return;
+   }
+
+   if(rom.size > (arena->size + sizeof(boot_rom)))
+   {
+      platform_log("ERROR: Oversized ROM file - the ROM was not loaded.\n");
+      platform_free_file(&rom);
+      return;
+   }
+
+   size_t stream_size = 0x10000;
+   map.stream = allocate(arena, stream_size);
+   map.stream_0x100 = allocate(arena, sizeof(boot_rom));
+
+   // TODO(law): More accurate memory initialization.
+   memset(map.stream, 0, stream_size);
+
+   Cartridge_Header *header = get_cartridge_header(rom.memory);
+
+   // TODO(law): Implement Memory Bank Controllers.
+   if(header->ram_size != 0)
+   {
+      platform_log("ERROR: The Memory Bank Controller used by the loaded ROM is not supported.\n");
+      platform_free_file(&rom);
+      return;
+   }
+
+   // TODO(law): Support the remaining cartridge types!
+   switch(header->cartridge_type)
+   {
+      case 0x00: // ROM ONLY
+      {
+         // NOTE(law): The cartridge contains 32KiB of ROM, which can be mapped
+         // directly into 0x0000 to 0x7FFF.
+
+         memcpy(map.stream, rom.memory, 0x8000);
+         memcpy(map.stream_0x100, rom.memory, sizeof(boot_rom));
+         memcpy(map.stream, boot_rom, sizeof(boot_rom));
+      } break;
+
+      default:
+      {
+         assert(!"UNHANDLED CARTRIDGE TYPE");
+      } break;
+   }
+
+   // TODO(law): This value refers the current horizontal line, and a value of
+   // 0x90 represents the beginning of a VBlank period. Since the boot ROM waits
+   // on VBlank for the logo processing, just hard code it until rendering is
+   // actually handled.
+   map.stream[0xFF44] = 0x90;
+
+   // NOTE(law): Ensure that this byte is set to zero on cartridge load. Setting
+   // it to a non-zero value is what unmaps the boot code.
+   map.stream[0xFF50] = 0x0;
+
+   platform_free_file(&rom);
 }
 
 static unsigned int
@@ -1043,22 +1206,6 @@ disassemble_stream(unsigned char *stream, unsigned int offset, unsigned int byte
       offset += disassemble_instruction(stream, offset);
    }
 }
-
-static unsigned char register_a;
-static unsigned char register_b;
-static unsigned char register_c;
-static unsigned char register_d;
-static unsigned char register_e;
-static unsigned char register_f;
-static unsigned char register_h;
-static unsigned char register_l;
-
-static unsigned short register_pc;
-static unsigned short register_sp;
-
-static bool halt;
-static bool stop;
-static bool ime;
 
 #define REGISTER_BC (((unsigned short)register_b << 8) | (unsigned short)register_c)
 #define REGISTER_DE (((unsigned short)register_d << 8) | (unsigned short)register_e)
