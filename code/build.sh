@@ -12,7 +12,7 @@ then
     COMPILER_FLAGS="${COMPILER_FLAGS} -Wno-unused-function"
 fi
 
-LINKER_FLAGS=""
+LINKER_FLAGS="-lX11"
 
 mkdir -p ../build
 pushd ../build > /dev/null
