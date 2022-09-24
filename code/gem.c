@@ -60,13 +60,27 @@ typedef struct
    unsigned char *memory;
 } Memory_Bank;
 
+typedef enum
+{
+   MEMORY_BANKING_MODE_SIMPLE   = 0x00,
+   MEMORY_BANKING_MODE_ADVANCED = 0x01,
+} Memory_Banking_Mode;
+
 static struct
 {
    Memory_Bank rom_banks[512];
    Memory_Bank ram_banks[16];
 
-   unsigned int selected_rom_index;
-   unsigned int selected_ram_index;
+   unsigned int rom_bank_count;
+   unsigned int ram_bank_count;
+
+   unsigned char rom_bank_mask;
+
+   unsigned int rom_selected_index;
+   unsigned int ram_selected_index;
+
+   Memory_Banking_Mode banking_mode;
+   unsigned char upper_rom_bank_bits;
 
    Memory_Bank vram;
    Memory_Bank wram;
@@ -107,9 +121,9 @@ typedef enum
 
 unsigned int monochrome_color_options[][4] =
 {
-   {0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820},
-   {0xFFE0DBCD, 0xFFA89F94, 0xFF706B66, 0xFF2B2B26},
-   {0xFF65F2BA, 0xFF39C28C, 0xFF30B37F, 0xFF0E7F54},
+   {0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820}, // DMG
+   {0xFFE0DBCD, 0xFFA89F94, 0xFF706B66, 0xFF2B2B26}, // MGB
+   {0xFF65F2BA, 0xFF39C28C, 0xFF30B37F, 0xFF0E7F54}, // LIGHT
 };
 
 static unsigned char boot_rom[] =
@@ -207,7 +221,16 @@ read_memory(unsigned short address)
    {
       if(map.boot_complete || address >= 0x100)
       {
-         result = map.rom_banks[0].memory[address];
+         unsigned char bank_index = 0;
+         if(map.banking_mode == MEMORY_BANKING_MODE_ADVANCED)
+         {
+            if(map.rom_bank_count > map.upper_rom_bank_bits);
+            {
+               map.rom_selected_index = map.upper_rom_bank_bits;
+            }
+         }
+
+         result = map.rom_banks[bank_index].memory[address];
       }
       else
       {
@@ -216,7 +239,7 @@ read_memory(unsigned short address)
    }
    else if(address < 0x8000) // NOTE(law): ROM bank 01-NN.
    {
-      unsigned int selected_rom_index = MAXIMUM(map.selected_rom_index, 1);
+      unsigned int selected_rom_index = MAXIMUM(map.rom_selected_index, 1);
       result = map.rom_banks[selected_rom_index].memory[address - 0x4000];
    }
    else if(address < 0xA000) // NOTE(law): VRAM
@@ -225,7 +248,14 @@ read_memory(unsigned short address)
    }
    else if(address < 0xC000) // NOTE(law): RAM banks
    {
-      result = map.rom_banks[map.selected_ram_index].memory[address - 0xA000];
+      if(map.ram_enabled)
+      {
+         result = map.rom_banks[map.ram_selected_index].memory[address - 0xA000];
+      }
+      else
+      {
+         result = 0xFF;
+      }
    }
    else if(address < 0xE000) // NOTE(law): WRAM
    {
@@ -268,16 +298,47 @@ write_memory(unsigned short address, char value)
 
    if(address <= 0x1FFF) // NOTE(law): Enable RAM
    {
-      map.ram_enabled = true;
+      map.ram_enabled = ((value >> 4) == 0xA);
    }
    else if(address < 0x4000) // NOTE(law): Select ROM bank
    {
+      map.rom_selected_index = MAXIMUM(value & map.rom_bank_mask, 1);
+      if(map.banking_mode == MEMORY_BANKING_MODE_ADVANCED)
+      {
+         unsigned char extended_index = map.rom_selected_index + map.upper_rom_bank_bits;
+         if(map.rom_bank_count > extended_index);
+         {
+            map.rom_selected_index = extended_index;
+         }
+      }
    }
    else if(address < 0x6000) // NOTE(law): Select RAM bank/upper ROM bank bits
    {
+      value &= 0x3;
+      if(map.banking_mode == MEMORY_BANKING_MODE_SIMPLE)
+      {
+         if(value < map.ram_bank_count)
+         {
+            map.ram_selected_index = value;
+         }
+      }
+      else
+      {
+         if(value < map.rom_bank_count)
+         {
+            // TODO(law): This calculation is handled differently for MBC1M
+            // cartridges - it only shifts up by 4.
+            map.upper_rom_bank_bits = (unsigned int)value << 5;
+            map.rom_selected_index = value;
+         }
+      }
    }
    else if(address < 0x8000) // NOTE(law): Select banking mode
    {
+      // TODO(law): Determine if the value MUST be 0 or 1, or if it can be
+      // truncated.
+
+      map.banking_mode = (value & 0x1);
    }
    else if(address < 0xA000) // NOTE(law): VRAM
    {
@@ -285,7 +346,11 @@ write_memory(unsigned short address, char value)
    }
    else if(address < 0xC000) // NOTE(law): RAM banks
    {
-      map.rom_banks[map.selected_ram_index].memory[address - 0xA000] = value;
+      // TODO(law): Does writing to disabled RAM have an effect?
+      if(map.ram_enabled)
+      {
+         map.rom_banks[map.ram_selected_index].memory[address - 0xA000] = value;
+      }
    }
    else if(address < 0xE000) // NOTE(law): WRAM
    {
@@ -542,16 +607,17 @@ load_cartridge(Memory_Arena *arena, char *file_path)
 
    Cartridge_Header *header = get_cartridge_header(rom.memory);
 
-   unsigned int rom_bank_count = (2 << header->rom_size);
-   for(unsigned int bank_index = 0; bank_index < rom_bank_count; ++bank_index)
+   map.rom_bank_mask = ~(0xFF << (header->rom_size + 1));
+   map.rom_bank_count = (2 << header->rom_size);
+   for(unsigned int bank_index = 0; bank_index < map.rom_bank_count; ++bank_index)
    {
       Memory_Bank *bank = map.rom_banks + bank_index;
       allocate_memory_bank(arena, bank, KIBIBYTES(16));
    }
 
    unsigned int ram_bank_counts[] = {0, 0, 1, 4, 16, 8};
-   unsigned int ram_bank_count = ram_bank_counts[header->ram_size];
-   for(unsigned int bank_index = 0; bank_index < ram_bank_count; ++bank_index)
+   map.ram_bank_count = ram_bank_counts[header->ram_size];
+   for(unsigned int bank_index = 0; bank_index < map.ram_bank_count; ++bank_index)
    {
       Memory_Bank *bank = map.ram_banks + bank_index;
       allocate_memory_bank(arena, bank, KIBIBYTES(8));
@@ -576,6 +642,19 @@ load_cartridge(Memory_Arena *arena, char *file_path)
 
          memcpy(map.rom_banks[0].memory, source0, map.rom_banks[0].size);
          memcpy(map.rom_banks[1].memory, source1, map.rom_banks[1].size);
+      } break;
+
+      case 0x01: // MCB1
+      case 0x02: // MBC1+RAM
+      case 0x03: // MCB1+RAM+BATTERY
+      {
+         unsigned char *source = rom.memory;
+         for(unsigned int bank_index = 0; bank_index < map.rom_bank_count; ++bank_index)
+         {
+            size_t size = map.rom_banks[bank_index].size;
+            memcpy(map.rom_banks[bank_index].memory, source, size);
+            source += size;
+         }
       } break;
 
       default:
