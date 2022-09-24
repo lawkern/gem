@@ -62,13 +62,23 @@ typedef struct
 
 static struct
 {
-   unsigned char *stream;
-
-   bool boot_complete;
-   unsigned char *stream_0x100;
-
-   Memory_Bank rom_banks[16];
+   Memory_Bank rom_banks[512];
    Memory_Bank ram_banks[16];
+
+   unsigned int selected_rom_index;
+   unsigned int selected_ram_index;
+
+   Memory_Bank vram;
+   Memory_Bank wram;
+   Memory_Bank oam;
+   Memory_Bank io;
+   Memory_Bank hram;
+
+   unsigned char register_ie;
+
+   bool load_complete;
+   bool boot_complete;
+   bool ram_enabled;
 } map;
 
 
@@ -81,6 +91,8 @@ static PLATFORM_FREE_FILE(platform_free_file);
 static PLATFORM_LOAD_FILE(platform_load_file);
 
 #define ARRAY_LENGTH(array) (sizeof(array) / sizeof((array)[0]))
+#define MAXIMUM(a, b) ((a) > (b) ? (a) : (b))
+
 #define KIBIBYTES(value) (1024LL * (value))
 #define MEBIBYTES(value) (1024LL * KIBIBYTES(value))
 
@@ -183,6 +195,139 @@ typedef struct
    unsigned short global_checksum;
 } Cartridge_Header;
 #pragma pack(pop)
+
+static unsigned char
+read_memory(unsigned short address)
+{
+   // TODO(law): Condense this down once everything is working.
+
+   unsigned char result = 0x00;
+
+   if(address < 0x4000) // NOTE(law): ROM bank 00.
+   {
+      if(map.boot_complete || address >= 0x100)
+      {
+         result = map.rom_banks[0].memory[address];
+      }
+      else
+      {
+         result = boot_rom[address];
+      }
+   }
+   else if(address < 0x8000) // NOTE(law): ROM bank 01-NN.
+   {
+      unsigned int selected_rom_index = MAXIMUM(map.selected_rom_index, 1);
+      result = map.rom_banks[selected_rom_index].memory[address - 0x4000];
+   }
+   else if(address < 0xA000) // NOTE(law): VRAM
+   {
+      result = map.vram.memory[address - 0x8000];
+   }
+   else if(address < 0xC000) // NOTE(law): RAM banks
+   {
+      result = map.rom_banks[map.selected_ram_index].memory[address - 0xA000];
+   }
+   else if(address < 0xE000) // NOTE(law): WRAM
+   {
+      result = map.wram.memory[address - 0xC000];
+   }
+   else if(address < 0xFE00) // NOTE(law): Mirror of C000-DDFF
+   {
+      result = map.wram.memory[address - 0xC000 - 0x2000];
+   }
+   else if(address < 0xFEA0) // NOTE(law): OAM
+   {
+      result = map.oam.memory[address - 0xFE00];
+   }
+   else if(address < 0xFF00) // NOTE(law): Not Usable
+   {
+      // TODO(law): Accessing this address range is not permitted. Implement the
+      // weird hardware-specific behavior, like OAM corruption.
+      result = 0xFF;
+   }
+   else if(address < 0xFF80) // NOTE(law): OAM
+   {
+      result = map.io.memory[address - 0xFF00];
+   }
+   else if(address < 0xFFFF) // NOTE(law): OAM
+   {
+      result = map.hram.memory[address - 0xFF80];
+   }
+   else if(address == 0xFFFF)
+   {
+      result = map.register_ie;
+   }
+
+   return(result);
+}
+
+static void
+write_memory(unsigned short address, char value)
+{
+   // TODO(law): Condense this down once everything is working.
+
+   if(address <= 0x1FFF) // NOTE(law): Enable RAM
+   {
+      map.ram_enabled = true;
+   }
+   else if(address < 0x4000) // NOTE(law): Select ROM bank
+   {
+   }
+   else if(address < 0x6000) // NOTE(law): Select RAM bank/upper ROM bank bits
+   {
+   }
+   else if(address < 0x8000) // NOTE(law): Select banking mode
+   {
+   }
+   else if(address < 0xA000) // NOTE(law): VRAM
+   {
+      map.vram.memory[address - 0x8000] = value;
+   }
+   else if(address < 0xC000) // NOTE(law): RAM banks
+   {
+      map.rom_banks[map.selected_ram_index].memory[address - 0xA000] = value;
+   }
+   else if(address < 0xE000) // NOTE(law): WRAM
+   {
+      map.wram.memory[address - 0xC000] = value;
+   }
+   else if(address < 0xFE00) // NOTE(law): Mirror of C000-DDFF
+   {
+      map.wram.memory[address -0xC000 - 0x2000] = value;
+   }
+   else if(address < 0xFEA0) // NOTE(law): OAM
+   {
+      map.oam.memory[address - 0xFE00] = value;
+   }
+   else if(address < 0xFF00) // NOTE(law): Not Usable
+   {
+      // TODO(law): Confirm what writes to this area are supposed to do.
+      assert(!"WRITE TO UNUSABLE MEMORY LOCATION.");
+   }
+   else if(address < 0xFF80) // NOTE(law): OAM
+   {
+      map.io.memory[address - 0xFF00] = value;
+   }
+   else if(address < 0xFFFF) // NOTE(law): OAM
+   {
+      map.hram.memory[address - 0xFF80] = value;
+   }
+   else if(address == 0xFFFF)
+   {
+      map.register_ie = value;
+   }
+}
+
+static unsigned short
+read_memory16(unsigned short address)
+{
+   // TODO(law): Confirm the endian-ness here.
+   unsigned char low  = read_memory(address + 0);
+   unsigned char high = read_memory(address + 1);
+
+   unsigned short result = ((unsigned short)high << 8) | low;
+   return(result);
+}
 
 static Cartridge_Header *
 get_cartridge_header(unsigned char *rom_memory)
@@ -348,9 +493,18 @@ void dump_cartridge_header(unsigned char *stream)
 }
 
 static void
+allocate_memory_bank(Memory_Arena *arena, Memory_Bank *bank, size_t size)
+{
+   bank->size = size;
+   bank->memory = allocate(arena, size);
+}
+
+static void
 load_cartridge(Memory_Arena *arena, char *file_path)
 {
    reset_arena(arena);
+   memset(&map, 0, sizeof(map));
+
    register_pc = 0;
 
    platform_log("Loading ROM at \"%s\"...\n", file_path);
@@ -362,17 +516,16 @@ load_cartridge(Memory_Arena *arena, char *file_path)
       return;
    }
 
-   platform_log("Validating cartridge header...\n");
-   if(!validate_cartridge_header(rom.memory, rom.size))
+   if(rom.size < (sizeof(boot_rom) + sizeof(Cartridge_Header)))
    {
-      platform_log("ERROR: Invalid cartridge header - the ROM was not loaded.\n");
+      platform_log("ERROR: The file was too small to contain a cartridge header - the ROM was not loaded.\n");
       platform_free_file(&rom);
       return;
    }
 
-   if(rom.size < (sizeof(boot_rom) + sizeof(Cartridge_Header)))
+   if(!validate_cartridge_header(rom.memory, rom.size))
    {
-      platform_log("ERROR: The file was too small to contain a cartridge header - the ROM was not loaded.\n");
+      platform_log("ERROR: Invalid cartridge header - the ROM was not loaded.\n");
       platform_free_file(&rom);
       return;
    }
@@ -384,22 +537,31 @@ load_cartridge(Memory_Arena *arena, char *file_path)
       return;
    }
 
-   size_t stream_size = 0x10000;
-   map.stream = allocate(arena, stream_size);
-   map.stream_0x100 = allocate(arena, sizeof(boot_rom));
-
-   // TODO(law): More accurate memory initialization.
-   memset(map.stream, 0, stream_size);
+   // NOTE(law): Once it seems like we have a valid cartridge, allocate the
+   // various memory banks.
 
    Cartridge_Header *header = get_cartridge_header(rom.memory);
 
-   // TODO(law): Implement Memory Bank Controllers.
-   if(header->ram_size != 0)
+   unsigned int rom_bank_count = (2 << header->rom_size);
+   for(unsigned int bank_index = 0; bank_index < rom_bank_count; ++bank_index)
    {
-      platform_log("ERROR: The Memory Bank Controller used by the loaded ROM is not supported.\n");
-      platform_free_file(&rom);
-      return;
+      Memory_Bank *bank = map.rom_banks + bank_index;
+      allocate_memory_bank(arena, bank, KIBIBYTES(16));
    }
+
+   unsigned int ram_bank_counts[] = {0, 0, 1, 4, 16, 8};
+   unsigned int ram_bank_count = ram_bank_counts[header->ram_size];
+   for(unsigned int bank_index = 0; bank_index < ram_bank_count; ++bank_index)
+   {
+      Memory_Bank *bank = map.ram_banks + bank_index;
+      allocate_memory_bank(arena, bank, KIBIBYTES(8));
+   }
+
+   allocate_memory_bank(arena, &map.vram, KIBIBYTES(8));
+   allocate_memory_bank(arena, &map.wram, KIBIBYTES(8));
+   allocate_memory_bank(arena, &map.oam, 0xA0);
+   allocate_memory_bank(arena, &map.io, 0x80);
+   allocate_memory_bank(arena, &map.hram, 0x7E);
 
    // TODO(law): Support the remaining cartridge types!
    switch(header->cartridge_type)
@@ -409,9 +571,11 @@ load_cartridge(Memory_Arena *arena, char *file_path)
          // NOTE(law): The cartridge contains 32KiB of ROM, which can be mapped
          // directly into 0x0000 to 0x7FFF.
 
-         memcpy(map.stream, rom.memory, 0x8000);
-         memcpy(map.stream_0x100, rom.memory, sizeof(boot_rom));
-         memcpy(map.stream, boot_rom, sizeof(boot_rom));
+         unsigned char *source0 = rom.memory;
+         unsigned char *source1 = rom.memory + map.rom_banks[0].size;
+
+         memcpy(map.rom_banks[0].memory, source0, map.rom_banks[0].size);
+         memcpy(map.rom_banks[1].memory, source1, map.rom_banks[1].size);
       } break;
 
       default:
@@ -424,33 +588,15 @@ load_cartridge(Memory_Arena *arena, char *file_path)
    // 0x90 represents the beginning of a VBlank period. Since the boot ROM waits
    // on VBlank for the logo processing, just hard code it until rendering is
    // actually handled.
-   map.stream[0xFF44] = 0x90;
+   write_memory(0xFF44, 0x90);
 
    // NOTE(law): Ensure that this byte is set to zero on cartridge load. Setting
    // it to a non-zero value is what unmaps the boot code.
-   map.stream[0xFF50] = 0x0;
+   write_memory(0xFF50, 0x0);
 
    platform_free_file(&rom);
-}
 
-static unsigned char
-read_memory(unsigned short address)
-{
-   unsigned char result = map.stream[address];
-   return(result);
-}
-
-static void
-write_memory(unsigned short address, char value)
-{
-   map.stream[address] = value;
-}
-
-static unsigned short
-read_memory16(unsigned short address)
-{
-   unsigned short result = *((unsigned short *)(map.stream + address));
-   return(result);
+   map.load_complete = true;
 }
 
 static unsigned int
@@ -2826,7 +2972,7 @@ clear(Platform_Bitmap *bitmap, Monochrome_Color_Option color_option)
 }
 
 static void
-render_tiles(Platform_Bitmap *bitmap, unsigned char *stream, int tile_offset,
+render_tiles(Platform_Bitmap *bitmap, unsigned int tile_offset,
              bool is_object, Monochrome_Color_Option color_option)
 {
    assert(ARRAY_LENGTH(monochrome_color_options) == MONOCHROME_COLOR_OPTION_COUNT);
@@ -2834,7 +2980,7 @@ render_tiles(Platform_Bitmap *bitmap, unsigned char *stream, int tile_offset,
 
    clear(bitmap, color_option);
 
-   unsigned char palette_data = stream[0xFF47];
+   unsigned char palette_data = read_memory(0xFF47);
 
    unsigned int palette[4];
    palette[0] = colors[(palette_data >> 6) & 0x3];
@@ -2842,7 +2988,7 @@ render_tiles(Platform_Bitmap *bitmap, unsigned char *stream, int tile_offset,
    palette[2] = colors[(palette_data >> 2) & 0x3];
    palette[3] = colors[(palette_data >> 0) & 0x3];
 
-   unsigned char *tiles = stream + tile_offset;
+   unsigned char *tiles = map.vram.memory + (tile_offset * 16);
    for(unsigned int tile_y = 0; tile_y < TILES_PER_SCREEN_HEIGHT; ++tile_y)
    {
       for(unsigned int tile_x = 0; tile_x < TILES_PER_SCREEN_WIDTH; ++tile_x)
