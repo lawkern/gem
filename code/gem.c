@@ -66,6 +66,13 @@ typedef enum
    MEMORY_BANKING_MODE_ADVANCED = 0x01,
 } Memory_Banking_Mode;
 
+typedef enum
+{
+   MEMORY_BANK_CONTROLLER_NONE,
+   MEMORY_BANK_CONTROLLER_MBC1,
+   MEMORY_BANK_CONTROLLER_MBC2,
+} Memory_Bank_Controller;
+
 static struct
 {
    Memory_Bank rom_banks[512];
@@ -89,6 +96,8 @@ static struct
    Memory_Bank hram;
 
    unsigned char register_ie;
+
+   Memory_Bank_Controller mbc;
 
    bool load_complete;
    bool boot_complete;
@@ -250,6 +259,12 @@ read_memory(unsigned short address)
    {
       if(map.ram_enabled)
       {
+         if((map.mbc == MEMORY_BANK_CONTROLLER_MBC2) && (address >= 0xA200))
+         {
+            // NOTE(law): 0xA200-BFFF mirrors 0xA000-A1FF on MBC2 cartridges.
+            address -= 0x200;
+         }
+
          result = map.rom_banks[map.ram_selected_index].memory[address - 0xA000];
       }
       else
@@ -296,6 +311,18 @@ write_memory(unsigned short address, char value)
 {
    // TODO(law): Condense this down once everything is working.
 
+   if((map.mbc == MEMORY_BANK_CONTROLLER_MBC2) && (address < 0x4000))
+   {
+      unsigned char bit8 = (address >> 8) & 0x1;
+      if(bit8)
+      {
+         map.rom_selected_index = MAXIMUM(value & 0x0F, 1);
+      }
+      else // NOTE(law): Enable MBC2 RAM
+      {
+         map.ram_enabled = ((value >> 4) == 0xA);
+      }
+   }
    if(address <= 0x1FFF) // NOTE(law): Enable RAM
    {
       map.ram_enabled = ((value >> 4) == 0xA);
@@ -349,7 +376,13 @@ write_memory(unsigned short address, char value)
       // TODO(law): Does writing to disabled RAM have an effect?
       if(map.ram_enabled)
       {
-         map.rom_banks[map.ram_selected_index].memory[address - 0xA000] = value;
+         if((map.mbc == MEMORY_BANK_CONTROLLER_MBC2) && (address >= 0xA200))
+         {
+            // NOTE(law): 0xA200-BFFF mirrors 0xA000-A1FF on MBC2 cartridges.
+            address -= 0x200;
+         }
+
+         map.ram_banks[map.ram_selected_index].memory[address - 0xA000] = value;
       }
    }
    else if(address < 0xE000) // NOTE(law): WRAM
@@ -483,7 +516,7 @@ void dump_cartridge_header(unsigned char *stream)
    platform_log("  TITLE: %s\n", header->title);
    platform_log("  SGB FLAG: 0x%02X\n", header->sgb_flag);
 
-   static char *cartridge_types[] =
+   static char *cartridge_type_names[] =
    {
       [0x00] = "ROM ONLY",
       [0x01] = "MBC1",
@@ -515,8 +548,8 @@ void dump_cartridge_header(unsigned char *stream)
       [0xFF] = "HuC1+RAM+BATTERY",
    };
 
-   // assert(header->cartridge_type < ARRAY_LENGTH(cartridge_types));
-   platform_log("  CARTRIDGE TYPE: %#x (%s)\n", header->cartridge_type, cartridge_types[header->cartridge_type]);
+   // assert(header->cartridge_type < ARRAY_LENGTH(cartridge_type_names));
+   platform_log("  CARTRIDGE TYPE: %#x (%s)\n", header->cartridge_type, cartridge_type_names[header->cartridge_type]);
    platform_log("  ROM SIZE: %u KiB\n", 32 * (1 << header->rom_size));
 
    static char *sram_sizes[] =
@@ -634,33 +667,34 @@ load_cartridge(Memory_Arena *arena, char *file_path)
    {
       case 0x00: // ROM ONLY
       {
-         // NOTE(law): The cartridge contains 32KiB of ROM, which can be mapped
-         // directly into 0x0000 to 0x7FFF.
-
-         unsigned char *source0 = rom.memory;
-         unsigned char *source1 = rom.memory + map.rom_banks[0].size;
-
-         memcpy(map.rom_banks[0].memory, source0, map.rom_banks[0].size);
-         memcpy(map.rom_banks[1].memory, source1, map.rom_banks[1].size);
+         map.mbc = MEMORY_BANK_CONTROLLER_NONE;
       } break;
 
       case 0x01: // MCB1
       case 0x02: // MBC1+RAM
       case 0x03: // MCB1+RAM+BATTERY
       {
-         unsigned char *source = rom.memory;
-         for(unsigned int bank_index = 0; bank_index < map.rom_bank_count; ++bank_index)
-         {
-            size_t size = map.rom_banks[bank_index].size;
-            memcpy(map.rom_banks[bank_index].memory, source, size);
-            source += size;
-         }
+         map.mbc = MEMORY_BANK_CONTROLLER_MBC1;
+      } break;
+
+      case 0x05: // MBC2
+      case 0x06: // MBC2+BATTERY
+      {
+         map.mbc = MEMORY_BANK_CONTROLLER_MBC2;
       } break;
 
       default:
       {
          assert(!"UNHANDLED CARTRIDGE TYPE");
       } break;
+   }
+
+   unsigned char *source = rom.memory;
+   for(unsigned int bank_index = 0; bank_index < map.rom_bank_count; ++bank_index)
+   {
+      size_t size = map.rom_banks[bank_index].size;
+      memcpy(map.rom_banks[bank_index].memory, source, size);
+      source += size;
    }
 
    // TODO(law): This value refers the current horizontal line, and a value of
