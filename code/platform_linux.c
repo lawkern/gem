@@ -119,9 +119,9 @@ linux_process_input(XEvent event)
          else if(keysym == XK_h)
          {
             // NOTE(law): Print the contents of the cartridge header.
-            if(map.stream)
+            if(map.load_complete)
             {
-               dump_cartridge_header(map.stream);
+               dump_cartridge_header(map.rom_banks[0].memory);
             }
             else
             {
@@ -131,7 +131,7 @@ linux_process_input(XEvent event)
          else if(keysym == XK_d)
          {
             // NOTE(law): Print the disassembly.
-            if(map.stream)
+            if(map.load_complete)
             {
                platform_log("Parsing instruction stream...\n");
                disassemble_stream(0, 0x10000);
@@ -144,7 +144,7 @@ linux_process_input(XEvent event)
          else if(keysym == XK_n)
          {
             // NOTE(law): Fetch and execute the next instruction.
-            if(map.stream)
+            if(map.load_complete)
             {
                platform_log("Fetching and executing instruction...\n");
                disassemble_instruction(register_pc);
@@ -429,18 +429,17 @@ main(int argument_count, char **arguments)
    {
       linux_process_events(window);
 
-      if(!linux_global_is_paused && map.stream)
+      if(!linux_global_is_paused && map.load_complete)
       {
-         // NOTE(law): For now, just loop over the entire memory map and display
-         // all the data as tiles.
-         static int tile_offset = 0; // VRAM_TILE_BLOCK_0
-         static bool is_object = true;
-         render_tiles(&bitmap, map.stream, tile_offset, is_object, linux_global_color_option);
+         // NOTE(law): Just loop over VRAM and display all the data as tiles.
+         static int tile_offset = 0;
+         static bool is_object = false;
 
-         tile_offset += 16;
-         if(tile_offset >= 0x10000 || register_pc == 0)
+         render_tiles(&bitmap, tile_offset++, is_object, linux_global_color_option);
+
+         if(tile_offset >= 384 || register_pc == 0)
          {
-            tile_offset = 0; // VRAM_TILE_BLOCK_0
+            tile_offset = 0;
             is_object = !is_object;
          }
       }
@@ -456,12 +455,11 @@ main(int argument_count, char **arguments)
       frame_seconds_elapsed = LINUX_SECONDS_ELAPSED(frame_start_count, frame_end_count);
       while(frame_seconds_elapsed < target_seconds_per_frame)
       {
-         if(!linux_global_is_paused && map.stream)
+         if(!linux_global_is_paused && map.load_complete)
          {
-            if(!map.boot_complete && map.stream[0xFF50])
+            if(!map.boot_complete && read_memory(0xFF50))
             {
                map.boot_complete = true;
-               memcpy(map.stream, map.stream_0x100, sizeof(boot_rom));
             }
 
             handle_interrupts();
