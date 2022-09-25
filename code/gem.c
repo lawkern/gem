@@ -119,22 +119,6 @@ static PLATFORM_LOAD_FILE(platform_load_file);
 #define KIBIBYTES(value) (1024LL * (value))
 #define MEBIBYTES(value) (1024LL * KIBIBYTES(value))
 
-typedef enum
-{
-   MONOCHROME_COLOR_OPTION_DMG,
-   MONOCHROME_COLOR_OPTION_MGB,
-   MONOCHROME_COLOR_OPTION_LIGHT,
-
-   MONOCHROME_COLOR_OPTION_COUNT,
-} Monochrome_Color_Option;
-
-unsigned int monochrome_color_options[][4] =
-{
-   {0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820}, // DMG
-   {0xFFE0DBCD, 0xFFA89F94, 0xFF706B66, 0xFF2B2B26}, // MGB
-   {0xFF65F2BA, 0xFF39C28C, 0xFF30B37F, 0xFF0E7F54}, // LIGHT
-};
-
 static unsigned char boot_rom[] =
 {
    0x31, 0xFE, 0xFF, 0xAF, 0x21, 0xFF, 0x9F, 0x32, 0xCB, 0x7C, 0x20, 0xFB, 0x21, 0x26, 0xFF, 0x0E,
@@ -3069,12 +3053,43 @@ handle_interrupts()
    }
 }
 
-static void
-clear(Platform_Bitmap *bitmap, Monochrome_Color_Option color_option)
+unsigned int monochrome_color_schemes[][4] =
 {
-   assert(ARRAY_LENGTH(monochrome_color_options) == MONOCHROME_COLOR_OPTION_COUNT);
-   unsigned int color = monochrome_color_options[color_option][0];
+   {0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820}, // DMG
+   {0xFFE0DBCD, 0xFFA89F94, 0xFF706B66, 0xFF2B2B26}, // MGB
+   {0xFF65F2BA, 0xFF39C28C, 0xFF30B37F, 0xFF0E7F54}, // LIGHT
+};
 
+#define PALETTE_DATA_BG   0xFF47
+#define PALETTE_DATA_OBJ0 0xFF48
+#define PALETTE_DATA_OBJ1 0xFF49
+
+typedef enum
+{
+   MONOCHROME_COLOR_OPTION_DMG,
+   MONOCHROME_COLOR_OPTION_MGB,
+   MONOCHROME_COLOR_OPTION_LIGHT,
+
+   MONOCHROME_COLOR_OPTION_COUNT,
+} Monochrome_Color_Scheme;
+
+static void
+get_palette(unsigned int *palette, unsigned int address, Monochrome_Color_Scheme color_scheme)
+{
+   assert(ARRAY_LENGTH(monochrome_color_schemes) == MONOCHROME_COLOR_OPTION_COUNT);
+   unsigned int *colors = monochrome_color_schemes[color_scheme];
+
+   unsigned char palette_data = read_memory(address);
+
+   palette[0] = colors[(palette_data >> 0) & 0x3];
+   palette[1] = colors[(palette_data >> 2) & 0x3];
+   palette[2] = colors[(palette_data >> 4) & 0x3];
+   palette[3] = colors[(palette_data >> 6) & 0x3];
+}
+
+static void
+clear(Platform_Bitmap *bitmap, unsigned int color)
+{
    for(unsigned int y = 0; y < bitmap->height; ++y)
    {
       for(unsigned int x = 0; x < bitmap->width; ++x)
@@ -3085,21 +3100,13 @@ clear(Platform_Bitmap *bitmap, Monochrome_Color_Option color_option)
 }
 
 static void
-render_tiles(Platform_Bitmap *bitmap, unsigned int tile_offset,
-             bool is_object, Monochrome_Color_Option color_option)
+dump_vram(Platform_Bitmap *bitmap, unsigned int tile_offset,
+             unsigned int palette_address, Monochrome_Color_Scheme scheme)
 {
-   assert(ARRAY_LENGTH(monochrome_color_options) == MONOCHROME_COLOR_OPTION_COUNT);
-   unsigned int *colors = monochrome_color_options[color_option];
-
-   clear(bitmap, color_option);
-
-   unsigned char palette_data = read_memory(0xFF47);
-
    unsigned int palette[4];
-   palette[0] = colors[(palette_data >> 6) & 0x3];
-   palette[1] = colors[(palette_data >> 4) & 0x3];
-   palette[2] = colors[(palette_data >> 2) & 0x3];
-   palette[3] = colors[(palette_data >> 0) & 0x3];
+   get_palette(palette, palette_address, scheme);
+
+   clear(bitmap, palette[0]);
 
    unsigned char *tiles = map.vram.memory + (tile_offset * 16);
    for(unsigned int tile_y = 0; tile_y < TILES_PER_SCREEN_HEIGHT; ++tile_y)
@@ -3125,7 +3132,8 @@ render_tiles(Platform_Bitmap *bitmap, unsigned int tile_offset,
                unsigned int bitmap_y = (tile_y * TILE_PIXEL_DIM) + pixel_y;
                unsigned int bitmap_x = (tile_x * TILE_PIXEL_DIM) + pixel_x;
 
-               if(!(is_object && (color_index == 0)))
+               bool is_object = (palette_address == PALETTE_DATA_OBJ1 || palette_address == PALETTE_DATA_OBJ0);
+               if(!(is_object && color_index == 0))
                {
                   bitmap->memory[(bitmap->width * bitmap_y) + bitmap_x] = palette[color_index];
                }

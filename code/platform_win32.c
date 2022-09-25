@@ -4,6 +4,7 @@
 
 #include <windows.h>
 #include <commctrl.h>
+#include <dsound.h>
 #include <stdarg.h>
 
 #include "gem.c"
@@ -14,7 +15,7 @@
 static bool win32_global_is_running;
 static bool win32_global_is_paused;
 static LARGE_INTEGER win32_global_counts_per_second;
-static Monochrome_Color_Option win32_global_color_option;
+static Monochrome_Color_Scheme win32_global_color_scheme;
 
 static Memory_Arena *win32_global_arena;
 static Platform_Bitmap *win32_global_bitmap;
@@ -278,6 +279,81 @@ win32_display_bitmap(Platform_Bitmap bitmap, HWND window, HDC device_context)
                  bitmap.memory, win32_global_bitmap_info, DIB_RGB_COLORS, SRCCOPY);
 }
 
+static LPDIRECTSOUNDBUFFER
+win32_initialize_sound(HWND window)
+{
+   HMODULE library = LoadLibraryA("dsound.dll");
+   if(!library)
+   {
+      platform_log("ERROR: Failed to load dsound.dll.\n");
+      return(0);
+   }
+
+   typedef HRESULT DSC(LPCGUID pcGuidDevice, LPDIRECTSOUND *ppDS, LPUNKNOWN pUnkOuter);
+   DSC *DirectSoundCreate = (DSC *)GetProcAddress(library, "DirectSoundCreate");
+
+   if(!DirectSoundCreate)
+   {
+      platform_log("ERROR: Failed to find the address of DirectSoundCreate.\n");
+      return(0);
+   }
+
+   LPDIRECTSOUND direct_sound;
+   if(DirectSoundCreate(0, &direct_sound, 0) != DS_OK)
+   {
+      platform_log("ERROR: DirectSound failed to initialize.\n");
+      return(0);
+   }
+
+   if(IDirectSound_SetCooperativeLevel(direct_sound, window, DSSCL_PRIORITY) != DS_OK)
+   {
+      platform_log("ERROR: DirectSound failed to set the cooperative level.\n");
+      return(0);
+   }
+
+   DSBUFFERDESC primary_description = {0};
+   primary_description.dwSize = sizeof(primary_description);
+   primary_description.dwFlags = DSBCAPS_PRIMARYBUFFER;
+
+   LPDIRECTSOUNDBUFFER primary_buffer;
+   if(IDirectSound_CreateSoundBuffer(direct_sound, &primary_description, &primary_buffer, 0) != DS_OK)
+   {
+      platform_log("ERROR: DirectSound failed to create the primary sound buffer.\n");
+      return(0);
+   }
+
+   WAVEFORMATEX wave_format = {0};
+   wave_format.wFormatTag = WAVE_FORMAT_PCM;
+   wave_format.nChannels = 2;
+   wave_format.nSamplesPerSec = 48000;
+   wave_format.wBitsPerSample = 16;
+   wave_format.nBlockAlign = (wave_format.nChannels * wave_format.wBitsPerSample) / 8;
+   wave_format.nAvgBytesPerSec = wave_format.nSamplesPerSec * wave_format.nBlockAlign;
+
+   if(IDirectSoundBuffer_SetFormat(primary_buffer, &wave_format) != DS_OK)
+   {
+      platform_log("ERROR: DirectSound failed to set primary sound buffer's format.\n");
+      return(0);
+   }
+
+   DSBUFFERDESC secondary_description = {0};
+   secondary_description.dwSize = sizeof(secondary_description);
+   secondary_description.dwFlags = DSBCAPS_GLOBALFOCUS;
+   secondary_description.dwBufferBytes = DSBSIZE_MIN;
+   secondary_description.dwReserved = 0;
+   secondary_description.lpwfxFormat = &wave_format;
+   secondary_description.guid3DAlgorithm = DS3DALG_DEFAULT;
+
+   LPDIRECTSOUNDBUFFER result;
+   if(IDirectSound_CreateSoundBuffer(direct_sound, &secondary_description, &result, 0) != DS_OK)
+   {
+      platform_log("ERROR: DirectSound failed to create the secondary sound buffer.\n");
+      return(0);
+   }
+
+   return(result);
+}
+
 LRESULT
 win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
@@ -340,7 +416,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 
             case WIN32_MENU_VIEW_COLOR_DMG:
             {
-               win32_global_color_option = MONOCHROME_COLOR_OPTION_DMG;
+               win32_global_color_scheme = MONOCHROME_COLOR_OPTION_DMG;
                CheckMenuRadioItem(win32_global_menu,
                                   WIN32_MENU_VIEW_COLOR_DMG,
                                   WIN32_MENU_VIEW_COLOR_LIGHT,
@@ -350,7 +426,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 
             case WIN32_MENU_VIEW_COLOR_MGB:
             {
-               win32_global_color_option = MONOCHROME_COLOR_OPTION_MGB;
+               win32_global_color_scheme = MONOCHROME_COLOR_OPTION_MGB;
                CheckMenuRadioItem(win32_global_menu,
                                   WIN32_MENU_VIEW_COLOR_DMG,
                                   WIN32_MENU_VIEW_COLOR_LIGHT,
@@ -360,7 +436,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 
             case WIN32_MENU_VIEW_COLOR_LIGHT:
             {
-               win32_global_color_option = MONOCHROME_COLOR_OPTION_LIGHT;
+               win32_global_color_scheme = MONOCHROME_COLOR_OPTION_LIGHT;
                CheckMenuRadioItem(win32_global_menu,
                                   WIN32_MENU_VIEW_COLOR_DMG,
                                   WIN32_MENU_VIEW_COLOR_LIGHT,
@@ -468,13 +544,13 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
             }
             else if(wparam == 'C')
             {
-               win32_global_color_option++;
-               if(win32_global_color_option >= MONOCHROME_COLOR_OPTION_COUNT)
+               win32_global_color_scheme++;
+               if(win32_global_color_scheme >= MONOCHROME_COLOR_OPTION_COUNT)
                {
-                  win32_global_color_option = 0;
+                  win32_global_color_scheme = 0;
                }
 
-               WPARAM param = WIN32_MENU_VIEW_COLOR_DMG + win32_global_color_option;
+               WPARAM param = WIN32_MENU_VIEW_COLOR_DMG + win32_global_color_scheme;
                SendMessage(window, WM_COMMAND, param, 0);
             }
             else if(wparam == 'D')
@@ -616,6 +692,9 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    // occluding some of the client area we intend to use.
    win32_set_resolution_scale(window, 1);
 
+   // NOTE(law): Initialize sound.
+   LPDIRECTSOUNDBUFFER sound_buffer = win32_initialize_sound(window);
+
    // NOTE(law): Attempt to load a ROM in case a path to one was provided as the
    // command line argument.
     win32_load_cartridge(&arena, window, command_line);
@@ -623,7 +702,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    float target_seconds_per_frame = 1.0f / 59.7f;
    float frame_seconds_elapsed = 0;
 
-   clear(&bitmap, win32_global_color_option);
+   clear(&bitmap, win32_global_color_scheme);
 
    LARGE_INTEGER frame_start_count;
    QueryPerformanceCounter(&frame_start_count);
@@ -642,14 +721,11 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       {
          // NOTE(law): Just loop over VRAM and display the contents as tiles.
          static int tile_offset = 0;
-         static bool is_object = false;
+         dump_vram(&bitmap, tile_offset++, PALETTE_DATA_BG, win32_global_color_scheme);
 
-         render_tiles(&bitmap, tile_offset++, is_object, win32_global_color_option);
-
-         if(tile_offset >= 384 || register_pc == 0)
+         if(tile_offset >= 512 || register_pc == 0)
          {
             tile_offset = 0;
-            is_object = !is_object;
          }
       }
 
