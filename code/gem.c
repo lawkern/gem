@@ -3,9 +3,12 @@
 /* /////////////////////////////////////////////////////////////////////////// */
 
 #include <assert.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#define TAU 6.2831853071f
 
 #define GEM_BASE_RESOLUTION_WIDTH 160
 #define GEM_BASE_RESOLUTION_HEIGHT 144
@@ -3139,6 +3142,33 @@ dump_vram(Platform_Bitmap *bitmap, unsigned int tile_offset,
                }
             }
          }
+      }
+   }
+}
+
+#define SOUND_OUTPUT_HZ 48000
+#define SOUND_OUTPUT_CHANNEL_COUNT 2
+#define SOUND_OUTPUT_SAMPLE_SIZE sizeof(signed short)
+
+static void
+generate_sound_samples(signed short *destination, unsigned int sample_count)
+{
+   static float wave_t = 0;
+
+   float volume = 1000.0f;
+   float wave_period = SOUND_OUTPUT_HZ / 256;
+
+   for(unsigned int sample_index = 0; sample_index < sample_count; ++sample_index)
+   {
+      signed short sample = (signed short)(sin(wave_t) * volume);
+
+      *destination++ = sample;
+      *destination++ = sample;
+
+      wave_t += (TAU / wave_period);
+      if(wave_t > TAU)
+      {
+         wave_t = 0;
       }
    }
 }

@@ -147,8 +147,8 @@ win32_toggle_fullscreen(HWND window)
    {
       MONITORINFO monitor_info = {sizeof(monitor_info)};
 
-      if (GetWindowPlacement(window, &win32_global_previous_window_placement) &&
-          GetMonitorInfo(MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY), &monitor_info))
+      if(GetWindowPlacement(window, &win32_global_previous_window_placement) &&
+         GetMonitorInfo(MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY), &monitor_info))
       {
          int x = monitor_info.rcMonitor.left;
          int y = monitor_info.rcMonitor.top;
@@ -279,14 +279,57 @@ win32_display_bitmap(Platform_Bitmap bitmap, HWND window, HDC device_context)
                  bitmap.memory, win32_global_bitmap_info, DIB_RGB_COLORS, SRCCOPY);
 }
 
-static LPDIRECTSOUNDBUFFER
-win32_initialize_sound(HWND window)
+typedef struct
 {
+   DWORD index;
+   DWORD buffer_size;
+   LPDIRECTSOUNDBUFFER buffer;
+} Win32_Sound_Output;
+
+static void
+win32_clear_sound_buffer(Win32_Sound_Output *output)
+{
+   VOID *region1;
+   VOID *region2;
+   DWORD size1;
+   DWORD size2;
+   if(IDirectSoundBuffer_Lock(output->buffer, 0, output->buffer_size, &region1, &size1, &region2, &size2, 0) != DS_OK)
+   {
+      platform_log("ERROR: DirectSound failed to lock the sound buffer.\n");
+      return;
+   }
+
+   output->index = 0;
+
+   unsigned char *destination = (unsigned char *)region1;
+   for(DWORD index = 0; index < size1; ++index)
+   {
+      *destination++ = 0;
+   }
+
+   destination = (unsigned char *)region2;
+   for(DWORD index = 0; index < size2; ++index)
+   {
+      *destination++ = 0;
+   }
+
+   if(IDirectSoundBuffer_Unlock(output->buffer, region1, size1, region2, size2) != DS_OK)
+   {
+      platform_log("ERROR: DirectSound failed to unlock the sound buffer.\n");
+      return;
+   }
+}
+
+static void
+win32_initialize_sound(Win32_Sound_Output *output, HWND window)
+{
+   ZeroMemory(output, sizeof(Win32_Sound_Output));
+
    HMODULE library = LoadLibraryA("dsound.dll");
    if(!library)
    {
-      platform_log("ERROR: Failed to load dsound.dll.\n");
-      return(0);
+      platform_log("ERROR: Windows failed to load dsound.dll.\n");
+      return;
    }
 
    typedef HRESULT DSC(LPCGUID pcGuidDevice, LPDIRECTSOUND *ppDS, LPUNKNOWN pUnkOuter);
@@ -294,21 +337,21 @@ win32_initialize_sound(HWND window)
 
    if(!DirectSoundCreate)
    {
-      platform_log("ERROR: Failed to find the address of DirectSoundCreate.\n");
-      return(0);
+      platform_log("ERROR: Windows failed to find the address of DirectSoundCreate.\n");
+      return;
    }
 
    LPDIRECTSOUND direct_sound;
    if(DirectSoundCreate(0, &direct_sound, 0) != DS_OK)
    {
       platform_log("ERROR: DirectSound failed to initialize.\n");
-      return(0);
+      return;
    }
 
    if(IDirectSound_SetCooperativeLevel(direct_sound, window, DSSCL_PRIORITY) != DS_OK)
    {
       platform_log("ERROR: DirectSound failed to set the cooperative level.\n");
-      return(0);
+      return;
    }
 
    DSBUFFERDESC primary_description = {0};
@@ -319,39 +362,128 @@ win32_initialize_sound(HWND window)
    if(IDirectSound_CreateSoundBuffer(direct_sound, &primary_description, &primary_buffer, 0) != DS_OK)
    {
       platform_log("ERROR: DirectSound failed to create the primary sound buffer.\n");
-      return(0);
+      return;
    }
 
    WAVEFORMATEX wave_format = {0};
    wave_format.wFormatTag = WAVE_FORMAT_PCM;
-   wave_format.nChannels = 2;
-   wave_format.nSamplesPerSec = 48000;
-   wave_format.wBitsPerSample = 16;
-   wave_format.nBlockAlign = (wave_format.nChannels * wave_format.wBitsPerSample) / 8;
+   wave_format.nChannels = SOUND_OUTPUT_CHANNEL_COUNT;
+   wave_format.nSamplesPerSec = SOUND_OUTPUT_HZ;
+   wave_format.wBitsPerSample = SOUND_OUTPUT_SAMPLE_SIZE * 8;
+   wave_format.nBlockAlign = SOUND_OUTPUT_CHANNEL_COUNT * SOUND_OUTPUT_SAMPLE_SIZE;
    wave_format.nAvgBytesPerSec = wave_format.nSamplesPerSec * wave_format.nBlockAlign;
 
    if(IDirectSoundBuffer_SetFormat(primary_buffer, &wave_format) != DS_OK)
    {
-      platform_log("ERROR: DirectSound failed to set primary sound buffer's format.\n");
-      return(0);
+      platform_log("ERROR: DirectSound failed to set the primary sound buffer's format.\n");
+      return;
    }
 
    DSBUFFERDESC secondary_description = {0};
    secondary_description.dwSize = sizeof(secondary_description);
    secondary_description.dwFlags = DSBCAPS_GLOBALFOCUS;
-   secondary_description.dwBufferBytes = DSBSIZE_MIN;
+   secondary_description.dwBufferBytes = SOUND_OUTPUT_HZ * SOUND_OUTPUT_SAMPLE_SIZE * SOUND_OUTPUT_CHANNEL_COUNT;
    secondary_description.dwReserved = 0;
    secondary_description.lpwfxFormat = &wave_format;
-   secondary_description.guid3DAlgorithm = DS3DALG_DEFAULT;
 
-   LPDIRECTSOUNDBUFFER result;
-   if(IDirectSound_CreateSoundBuffer(direct_sound, &secondary_description, &result, 0) != DS_OK)
+   LPDIRECTSOUNDBUFFER sound_buffer;
+   if(IDirectSound_CreateSoundBuffer(direct_sound, &secondary_description, &sound_buffer, 0) != DS_OK)
    {
       platform_log("ERROR: DirectSound failed to create the secondary sound buffer.\n");
-      return(0);
+      return;
+   }
+
+   // NOTE(law): Fill out the return struct.
+   output->buffer_size = secondary_description.dwBufferBytes;
+   output->buffer = sound_buffer;
+
+   // NOTE(law): Clear the sound buffer and start playing.
+   win32_clear_sound_buffer(output);
+   if(IDirectSoundBuffer_Play(output->buffer, 0, 0, DSBPLAY_LOOPING) != DS_OK)
+   {
+      platform_log("WARNING: DirectSound failed to start playing sound.\n");
+      return;
+   }
+}
+
+static DWORD
+win32_get_sound_write_size(Win32_Sound_Output *output)
+{
+   DWORD result = 0;
+
+   DWORD play_cursor;
+   DWORD unused; // write_cursor
+   if(IDirectSoundBuffer_GetCurrentPosition(output->buffer, &play_cursor, &unused) != DS_OK)
+   {
+      platform_log("ERROR: DirectSound failed to find the play and write cursors.\n");
+      return(result);
+   }
+
+   // TODO(law): Reduce the latency here!
+   DWORD target_cursor = play_cursor;
+
+   output->index %= output->buffer_size;
+   if(target_cursor < output->index)
+   {
+      result = (output->buffer_size - output->index) + target_cursor;
+   }
+   else
+   {
+      result = target_cursor - output->index;
    }
 
    return(result);
+}
+
+static void
+win32_output_sound_samples(Win32_Sound_Output *output, signed short *samples, DWORD write_size)
+{
+   VOID *region1;
+   VOID *region2;
+
+   DWORD size1;
+   DWORD size2;
+
+   if(IDirectSoundBuffer_Lock(output->buffer, output->index, write_size, &region1, &size1, &region2, &size2, 0) != DS_OK)
+   {
+      platform_log("ERROR: DirectSound failed to lock the sound buffer.\n");
+      return;
+   }
+
+   signed short *source = samples;
+   signed short *destination = (signed short *)region1;
+
+   DWORD sample_count = size1 / (SOUND_OUTPUT_SAMPLE_SIZE * SOUND_OUTPUT_CHANNEL_COUNT);
+   for(DWORD sample_index = 0; sample_index < sample_count; ++sample_index)
+   {
+      // NOTE(law): Channel 0
+      *destination++ = *source++;
+      output->index += SOUND_OUTPUT_SAMPLE_SIZE;
+
+      // NOTE(law): Channel 1
+      *destination++ = *source++;
+      output->index += SOUND_OUTPUT_SAMPLE_SIZE;
+   }
+
+   destination = (signed short *)region2;
+
+   sample_count = size2 / (SOUND_OUTPUT_SAMPLE_SIZE * SOUND_OUTPUT_CHANNEL_COUNT);
+   for(DWORD sample_index = 0; sample_index < sample_count; ++sample_index)
+   {
+      // NOTE(law): Channel 0
+      *destination++ = *source++;
+      output->index += SOUND_OUTPUT_SAMPLE_SIZE;
+
+      // NOTE(law): Channel 1
+      *destination++ = *source++;
+      output->index += SOUND_OUTPUT_SAMPLE_SIZE;
+   }
+
+   if(IDirectSoundBuffer_Unlock(output->buffer, region1, size1, region2, size2) != DS_OK)
+   {
+      platform_log("ERROR: DirectSound failed to unlock the sound buffer.\n");
+      return;
+   }
 }
 
 LRESULT
@@ -613,6 +745,13 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
    return(result);
 }
 
+static void *
+win32_allocate(SIZE_T size)
+{
+   VOID *result = VirtualAlloc(0, size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+   return(result);
+}
+
 int
 WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int show_command)
 {
@@ -631,7 +770,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
    if(!RegisterClassExA(&window_class))
    {
-      platform_log("ERROR: Failed to register a window class.\n");
+      platform_log("ERROR: Windows failed to register a window class.\n");
       return(1);
    }
 
@@ -650,14 +789,19 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
    if(!window)
    {
-      platform_log("ERROR: Failed to create a window.\n");
+      platform_log("ERROR: Windows failed to create a window.\n");
       return(1);
    }
 
    // NOTE(law): Perform general dynamic allocations up front.
    Memory_Arena arena = {0};
    arena.size = MEBIBYTES(64);
-   arena.base_address = VirtualAlloc(0, arena.size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+   arena.base_address = win32_allocate(arena.size);
+   if(!arena.base_address)
+   {
+      platform_log("ERROR: Windows failed to allocate our memory arena.\n");
+      return(1);
+   }
 
    win32_global_arena = &arena;
 
@@ -666,7 +810,12 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
    SIZE_T bytes_per_pixel = sizeof(unsigned int);
    SIZE_T bitmap_size = bitmap.width * bitmap.height * bytes_per_pixel;
-   bitmap.memory = VirtualAlloc(0, bitmap_size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+   bitmap.memory = win32_allocate(bitmap_size);
+   if(!bitmap.memory)
+   {
+      platform_log("ERROR: Windows failed to allocate our bitmap.\n");
+      return(1);
+   }
 
    BITMAPINFOHEADER bitmap_header = {0};
    bitmap_header.biSize = sizeof(BITMAPINFOHEADER);
@@ -693,7 +842,15 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    win32_set_resolution_scale(window, 1);
 
    // NOTE(law): Initialize sound.
-   LPDIRECTSOUNDBUFFER sound_buffer = win32_initialize_sound(window);
+   Win32_Sound_Output sound_output;
+   win32_initialize_sound(&sound_output, window);
+
+   signed short *samples = win32_allocate(sound_output.buffer_size);
+   if(!samples)
+   {
+      platform_log("ERROR: Windows failed to allocate our sound samples.\n");
+      return(1);
+   }
 
    // NOTE(law): Attempt to load a ROM in case a path to one was provided as the
    // command line argument.
@@ -734,10 +891,16 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       win32_display_bitmap(bitmap, window, device_context);
       ReleaseDC(window, device_context);
 
+      // NOTE(law): Output sound.
+      DWORD sound_write_size = win32_get_sound_write_size(&sound_output);
+      unsigned int sample_count = sound_write_size / (SOUND_OUTPUT_SAMPLE_SIZE * SOUND_OUTPUT_CHANNEL_COUNT);
+
+      generate_sound_samples(samples, sample_count);
+      win32_output_sound_samples(&sound_output, samples, sound_write_size);
+
       // NOTE(law): Calculate elapsed frame time.
       LARGE_INTEGER frame_end_count;
       QueryPerformanceCounter(&frame_end_count);
-
 
       unsigned int instructions_executed = 0;
       frame_seconds_elapsed = WIN32_SECONDS_ELAPSED(frame_start_count, frame_end_count);
