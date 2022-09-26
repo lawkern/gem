@@ -31,6 +31,7 @@ static WINDOWPLACEMENT win32_global_previous_window_placement =
 enum
 {
    WIN32_MENU_FILE_OPEN = 9001,
+   WIN32_MENU_FILE_CLOSE,
    WIN32_MENU_FILE_EXIT,
    WIN32_MENU_VIEW_COLOR_DMG,
    WIN32_MENU_VIEW_COLOR_MGB,
@@ -113,8 +114,24 @@ win32_load_cartridge(Memory_Arena *arena, HWND window, char *file_path)
 {
    load_cartridge(arena, file_path);
 
+   if(map.load_complete)
+   {
+      HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
+      SendMessage(status_bar, WM_SETTEXT, 0, (LPARAM)file_path);
+
+      EnableMenuItem(win32_global_menu, WIN32_MENU_FILE_CLOSE, MF_ENABLED);
+   }
+}
+
+static void
+win32_unload_cartridge(Memory_Arena *arena, HWND window)
+{
+   unload_cartridge(arena);
+
    HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
-   SendMessage(status_bar, WM_SETTEXT, 0, (LPARAM)file_path);
+   SendMessage(status_bar, WM_SETTEXT, 0, (LPARAM)"");
+
+   EnableMenuItem(win32_global_menu, WIN32_MENU_FILE_CLOSE, MF_GRAYED);
 }
 
 static void
@@ -503,7 +520,8 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          win32_global_menu = CreateMenu();
 
          HMENU file_menu = CreatePopupMenu();
-         AppendMenu(file_menu, MF_STRING, WIN32_MENU_FILE_OPEN, "&Open ROM\tCtrl+O");
+         AppendMenu(file_menu, MF_STRING, WIN32_MENU_FILE_OPEN, "&Load Cartridge\tCtrl+O");
+         AppendMenu(file_menu, MF_STRING|MF_GRAYED, WIN32_MENU_FILE_CLOSE, "&Unload Cartridge");
          AppendMenu(file_menu, MF_SEPARATOR, 0, 0);
          AppendMenu(file_menu, MF_STRING, WIN32_MENU_FILE_EXIT, "E&xit\tAlt+F4");
          AppendMenu(win32_global_menu, MF_STRING|MF_POPUP, (UINT_PTR)file_menu, "&File");
@@ -542,6 +560,11 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
             case WIN32_MENU_FILE_OPEN:
             {
                win32_open_file_dialog(win32_global_arena, window);
+            } break;
+
+            case WIN32_MENU_FILE_CLOSE:
+            {
+               win32_unload_cartridge(win32_global_arena, window);
             } break;
 
             case WIN32_MENU_FILE_EXIT:
@@ -860,7 +883,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
    // NOTE(law): Attempt to load a ROM in case a path to one was provided as the
    // command line argument.
-    win32_load_cartridge(&arena, window, command_line);
+   win32_load_cartridge(&arena, window, command_line);
 
    float target_seconds_per_frame = 1.0f / 59.7f;
    float frame_seconds_elapsed = 0;

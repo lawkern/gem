@@ -596,12 +596,17 @@ allocate_memory_bank(Memory_Arena *arena, Memory_Bank *bank, size_t size)
 }
 
 static void
-load_cartridge(Memory_Arena *arena, char *file_path)
+unload_cartridge(Memory_Arena *arena)
 {
    reset_arena(arena);
    memset(&map, 0, sizeof(map));
-
    register_pc = 0;
+}
+
+static void
+load_cartridge(Memory_Arena *arena, char *file_path)
+{
+   unload_cartridge(arena);
 
    platform_log("Loading ROM at \"%s\"...\n", file_path);
    Platform_File rom = platform_load_file(file_path);
