@@ -3067,11 +3067,11 @@ handle_interrupts()
    }
 }
 
-unsigned int monochrome_color_schemes[][4] =
+unsigned int monochrome_color_schemes[][5] =
 {
-   {0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820}, // DMG
-   {0xFFE0DBCD, 0xFFA89F94, 0xFF706B66, 0xFF2B2B26}, // MGB
-   {0xFF65F2BA, 0xFF39C28C, 0xFF30B37F, 0xFF0E7F54}, // LIGHT
+   {0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820, 0xFFACC480 /*0xFF8C7410*/}, // DMG
+   {0xFFE0DBCD, 0xFFA89F94, 0xFF706B66, 0xFF2B2B26, 0xFFBDB890}, // MGB
+   {0xFF65F2BA, 0xFF39C28C, 0xFF30B37F, 0xFF0E7F54, 0xFFBDB890}, // LIGHT
 };
 
 #define PALETTE_DATA_BG   0xFF47
@@ -3086,6 +3086,13 @@ typedef enum
 
    MONOCHROME_COLOR_OPTION_COUNT,
 } Monochrome_Color_Scheme;
+
+static unsigned int
+get_display_off_color(Monochrome_Color_Scheme color_scheme)
+{
+   unsigned int result = monochrome_color_schemes[color_scheme][4];
+   return(result);
+}
 
 static void
 get_palette(unsigned int *palette, unsigned short address, Monochrome_Color_Scheme color_scheme)

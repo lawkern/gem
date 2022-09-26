@@ -865,7 +865,8 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    float target_seconds_per_frame = 1.0f / 59.7f;
    float frame_seconds_elapsed = 0;
 
-   clear(&bitmap, win32_global_color_scheme);
+   unsigned int clear_color = get_display_off_color(win32_global_color_scheme);
+   clear(&bitmap, clear_color);
 
    LARGE_INTEGER frame_start_count;
    QueryPerformanceCounter(&frame_start_count);
@@ -880,15 +881,23 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
          DispatchMessage(&message);
       }
 
-      if(!win32_global_is_paused && map.load_complete)
+      if(!win32_global_is_paused)
       {
-         // NOTE(law): Just loop over VRAM and display the contents as tiles.
-         static int tile_offset = 0;
-         dump_vram(&bitmap, tile_offset++, PALETTE_DATA_BG, win32_global_color_scheme);
-
-         if(tile_offset >= 512 || register_pc == 0)
+         if(map.load_complete)
          {
-            tile_offset = 0;
+            // NOTE(law): Just loop over VRAM and display the contents as tiles.
+            static int tile_offset = 0;
+            dump_vram(&bitmap, tile_offset++, PALETTE_DATA_BG, win32_global_color_scheme);
+
+            if(tile_offset >= 512 || register_pc == 0)
+            {
+               tile_offset = 0;
+            }
+         }
+         else
+         {
+            clear_color = get_display_off_color(win32_global_color_scheme);
+            clear(&bitmap, clear_color);
          }
       }
 

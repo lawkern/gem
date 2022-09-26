@@ -8,8 +8,8 @@ IF %DEVELOPMENT_BUILD%==1 (
 )
 
 SET WIN32_ICON=201
-SET COMPILER_FLAGS=-nologo -Z7 -Od -FC -diagnostics:column -DWIN32_ICON=%WIN32_ICON% %WARNING_FLAGS%
-SET LINKER_FLAGS=-incremental:no user32.lib gdi32.lib comdlg32.lib comctl32.lib
+SET COMPILER_FLAGS=-nologo -Z7 -Oi -Od -FC -MT -diagnostics:column -DWIN32_ICON=%WIN32_ICON% %WARNING_FLAGS%
+SET LINKER_FLAGS=-opt:ref -incremental:no user32.lib gdi32.lib comdlg32.lib comctl32.lib
 
 IF NOT EXIST ..\build mkdir ..\build
 PUSHD ..\build
