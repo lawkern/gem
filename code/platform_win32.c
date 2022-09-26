@@ -88,9 +88,13 @@ PLATFORM_LOAD_FILE(platform_load_file)
       return(result);
    }
 
+   // NOTE(law): ReadFile is limited to reading 32-bit file sizes. As a result,
+   // the Win32 platform can't actually use the full 64-bit size_t file size
+   // defined in the non-platform code - it caps out at 4GB.
+
    HANDLE file = CreateFileA(file_path, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
    DWORD bytes_read;
-   if(ReadFile(file, result.memory, size, &bytes_read, 0) && size == bytes_read)
+   if(ReadFile(file, result.memory, (DWORD)size, &bytes_read, 0) && size == (size_t)bytes_read)
    {
       result.size = size;
    }
@@ -755,6 +759,8 @@ win32_allocate(SIZE_T size)
 int
 WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int show_command)
 {
+   (void)previous_instance;
+
    InitCommonControls();
    QueryPerformanceFrequency(&win32_global_counts_per_second);
 
@@ -820,7 +826,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    BITMAPINFOHEADER bitmap_header = {0};
    bitmap_header.biSize = sizeof(BITMAPINFOHEADER);
    bitmap_header.biWidth = bitmap.width;
-   bitmap_header.biHeight = -bitmap.height; // NOTE(law): Negative will indicate a top-down bitmap.
+   bitmap_header.biHeight = -(signed int)bitmap.height; // NOTE(law): Negative will indicate a top-down bitmap.
    bitmap_header.biPlanes = 1;
    bitmap_header.biBitCount = 32;
    bitmap_header.biCompression = BI_RGB;

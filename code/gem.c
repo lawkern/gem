@@ -319,7 +319,7 @@ write_memory(unsigned short address, char value)
       map.rom_selected_index = MAXIMUM(value & map.rom_bank_mask, 1);
       if(map.banking_mode == MEMORY_BANKING_MODE_ADVANCED)
       {
-         unsigned char extended_index = map.rom_selected_index + map.upper_rom_bank_bits;
+         unsigned int extended_index = map.rom_selected_index + map.upper_rom_bank_bits;
          if(map.rom_bank_count > extended_index);
          {
             map.rom_selected_index = extended_index;
@@ -331,14 +331,14 @@ write_memory(unsigned short address, char value)
       value &= 0x3;
       if(map.banking_mode == MEMORY_BANKING_MODE_SIMPLE)
       {
-         if(value < map.ram_bank_count)
+         if((unsigned int)value < map.ram_bank_count)
          {
-            map.ram_selected_index = value;
+            map.ram_selected_index = (unsigned int)value;
          }
       }
       else
       {
-         if(value < map.rom_bank_count)
+         if((unsigned int)value < map.rom_bank_count)
          {
             // TODO(law): This calculation is handled differently for MBC1M
             // cartridges - it only shifts up by 4.
@@ -412,6 +412,17 @@ read_memory16(unsigned short address)
 
    unsigned short result = ((unsigned short)high << 8) | low;
    return(result);
+}
+
+static void
+write_memory16(unsigned short address, unsigned short value)
+{
+   // TODO(law): Confirm the endian-ness here.
+   unsigned char low  = (value & 0xF);
+   unsigned char high = (value >> 8);
+
+   write_memory(address + 0, low);
+   write_memory(address + 1, high);
 }
 
 static Cartridge_Header *
@@ -699,10 +710,10 @@ load_cartridge(Memory_Arena *arena, char *file_path)
    map.load_complete = true;
 }
 
-static unsigned int
+static unsigned short
 disassemble_instruction(unsigned short address)
 {
-   unsigned int initial_address = address;
+   unsigned short initial_address = address;
 
    // NOTE(law): Print the address of the current instruction.
    platform_log("0x%04X  ", address);
@@ -1437,19 +1448,19 @@ disassemble_instruction(unsigned short address)
    }
 
    platform_log("    ; ");
-   for(unsigned int index = initial_address; index < address; ++index)
+   for(unsigned short index = initial_address; index < address; ++index)
    {
       platform_log("%02X ", read_memory(index));
    }
 
    platform_log("\n");
 
-   unsigned int result = address - initial_address;
+   unsigned short result = address - initial_address;
    return(result);
 }
 
 static void
-disassemble_stream(unsigned int address, unsigned int byte_count)
+disassemble_stream(unsigned short address, unsigned int byte_count)
 {
    // TODO(law): 16-bit operations are not being endian swapped in this
    // function.
@@ -2599,7 +2610,7 @@ fetch_and_execute()
          {
             unsigned char address_low  = read_memory(register_pc++);
             unsigned char address_high = read_memory(register_pc++);
-            unsigned address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
+            unsigned short address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
 
             register_a = read_memory(address);
          } break;
@@ -2611,7 +2622,7 @@ fetch_and_execute()
          {
             unsigned char address_low  = read_memory(register_pc++);
             unsigned char address_high = read_memory(register_pc++);
-            unsigned address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
+            unsigned short address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
 
             write_memory(address, register_a);
          } break;
@@ -2716,7 +2727,7 @@ fetch_and_execute()
             unsigned char address_high = read_memory(register_pc++);
             unsigned short address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
 
-            write_memory(address, register_sp);
+            write_memory16(address, register_sp);
          } break;
 
          case 0x01: // LD BC, nn
@@ -3077,7 +3088,7 @@ typedef enum
 } Monochrome_Color_Scheme;
 
 static void
-get_palette(unsigned int *palette, unsigned int address, Monochrome_Color_Scheme color_scheme)
+get_palette(unsigned int *palette, unsigned short address, Monochrome_Color_Scheme color_scheme)
 {
    assert(ARRAY_LENGTH(monochrome_color_schemes) == MONOCHROME_COLOR_OPTION_COUNT);
    unsigned int *colors = monochrome_color_schemes[color_scheme];
@@ -3104,7 +3115,7 @@ clear(Platform_Bitmap *bitmap, unsigned int color)
 
 static void
 dump_vram(Platform_Bitmap *bitmap, unsigned int tile_offset,
-             unsigned int palette_address, Monochrome_Color_Scheme scheme)
+             unsigned short palette_address, Monochrome_Color_Scheme scheme)
 {
    unsigned int palette[4];
    get_palette(palette, palette_address, scheme);
