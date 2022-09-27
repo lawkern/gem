@@ -28,3 +28,5 @@ BEGIN
                 VALUE "Translation", 0x409, 1252
         END
 END
+
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "gem.exe.manifest"
