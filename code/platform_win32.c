@@ -109,6 +109,13 @@ PLATFORM_LOAD_FILE(platform_load_file)
    return(result);
 }
 
+static void *
+win32_allocate(SIZE_T size)
+{
+   VOID *result = VirtualAlloc(0, size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+   return(result);
+}
+
 static void
 win32_load_cartridge(Memory_Arena *arena, HWND window, char *file_path)
 {
@@ -772,13 +779,6 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
    return(result);
 }
 
-static void *
-win32_allocate(SIZE_T size)
-{
-   VOID *result = VirtualAlloc(0, size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
-   return(result);
-}
-
 int
 WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int show_command)
 {
@@ -874,8 +874,10 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    Win32_Sound_Output sound_output;
    win32_initialize_sound(&sound_output, window);
 
-   signed short *samples = win32_allocate(sound_output.buffer_size);
-   if(!samples)
+   Sound_Samples sound = {0};
+   sound.buffer_size = sound_output.buffer_size;
+   sound.samples = win32_allocate(sound.buffer_size);
+   if(!sound.samples)
    {
       platform_log("ERROR: Windows failed to allocate our sound samples.\n");
       return(1);
@@ -885,8 +887,9 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    // command line argument.
    win32_load_cartridge(&arena, window, command_line);
 
-   float target_seconds_per_frame = 1.0f / 59.7f;
    float frame_seconds_elapsed = 0;
+   float target_seconds_per_frame = 1.0f / VERTICAL_REFRESH_HZ;
+   unsigned int target_cycles_per_frame = (unsigned int)(CPU_HZ / VERTICAL_REFRESH_HZ);
 
    unsigned int clear_color = get_display_off_color(win32_global_color_scheme);
    clear(&bitmap, clear_color);
@@ -904,48 +907,21 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
          DispatchMessage(&message);
       }
 
-      if(!win32_global_is_paused)
+      if(!map.load_complete)
       {
-         if(map.load_complete)
-         {
-            // NOTE(law): Just loop over VRAM and display the contents as tiles.
-            static int tile_offset = 0;
-            dump_vram(&bitmap, tile_offset++, PALETTE_DATA_BG, win32_global_color_scheme);
-
-            if(tile_offset >= 512 || register_pc == 0)
-            {
-               tile_offset = 0;
-            }
-         }
-         else
-         {
-            clear_color = get_display_off_color(win32_global_color_scheme);
-            clear(&bitmap, clear_color);
-         }
+         clear_color = get_display_off_color(win32_global_color_scheme);
+         clear(&bitmap, clear_color);
       }
 
-      // NOTE(law): Blit bitmap to screen.
-      HDC device_context = GetDC(window);
-      win32_display_bitmap(bitmap, window, device_context);
-      ReleaseDC(window, device_context);
-
-      // NOTE(law): Output sound.
-      DWORD sound_write_size = win32_get_sound_write_size(&sound_output);
-      unsigned int sample_count = sound_write_size / (SOUND_OUTPUT_SAMPLE_SIZE * SOUND_OUTPUT_CHANNEL_COUNT);
-
-      generate_sound_samples(samples, sample_count);
-      win32_output_sound_samples(&sound_output, samples, sound_write_size);
-
-      // NOTE(law): Calculate elapsed frame time.
-      LARGE_INTEGER frame_end_count;
-      QueryPerformanceCounter(&frame_end_count);
-
-      unsigned int instructions_executed = 0;
-      frame_seconds_elapsed = WIN32_SECONDS_ELAPSED(frame_start_count, frame_end_count);
-
-      while(frame_seconds_elapsed < target_seconds_per_frame)
+      if(!map.load_complete || win32_global_is_paused)
       {
-         if(!win32_global_is_paused && map.load_complete)
+         win32_clear_sound_buffer(&sound_output);
+      }
+
+      unsigned int frame_cycles = 0;
+      if(!win32_global_is_paused && map.load_complete)
+      {
+         while(frame_cycles < target_cycles_per_frame)
          {
             if(!map.boot_complete && read_memory(0xFF50))
             {
@@ -953,19 +929,50 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
             }
 
             handle_interrupts();
-            fetch_and_execute();
-
-            instructions_executed++;
+            frame_cycles += fetch_and_execute();
          }
 
+         // NOTE(law): Just loop over VRAM and display the contents as tiles.
+         static int tile_offset = 0;
+         dump_vram(&bitmap, tile_offset++, PALETTE_DATA_BG, win32_global_color_scheme);
+
+         if(tile_offset >= 512 || register_pc == 0)
+         {
+            tile_offset = 0;
+         }
+
+         // NOTE(law): Output sound.
+         DWORD sound_write_size = win32_get_sound_write_size(&sound_output);
+         unsigned int sample_count = sound_write_size / (SOUND_OUTPUT_SAMPLE_SIZE * SOUND_OUTPUT_CHANNEL_COUNT);
+
+         generate_debug_samples(&sound, sample_count);
+         win32_output_sound_samples(&sound_output, sound.samples, sound_write_size);
+
+         sound.sample_index = 0;
+         memset(sound.samples, 0, sound.buffer_size);
+      }
+
+      // NOTE(law): Blit bitmap to screen.
+      HDC device_context = GetDC(window);
+      win32_display_bitmap(bitmap, window, device_context);
+      ReleaseDC(window, device_context);
+
+      // NOTE(law): Calculate elapsed frame time.
+      LARGE_INTEGER frame_end_count;
+      QueryPerformanceCounter(&frame_end_count);
+
+      frame_seconds_elapsed = WIN32_SECONDS_ELAPSED(frame_start_count, frame_end_count);
+      while(frame_seconds_elapsed < target_seconds_per_frame)
+      {
          QueryPerformanceCounter(&frame_end_count);
          frame_seconds_elapsed = WIN32_SECONDS_ELAPSED(frame_start_count, frame_end_count);
       }
       frame_start_count = frame_end_count;
 
-      float average_us = (frame_seconds_elapsed * 1000.0f * 1000.0f) / (float)instructions_executed;
+      float average_us = (frame_seconds_elapsed * 1000.0f * 1000.0f) / (float)frame_cycles;
       platform_log("Frame time: %0.03fms, ", frame_seconds_elapsed * 1000.0f);
-      platform_log("Average instruction time: %0.03fus\n", average_us);
+      platform_log("Cycles: %u, ", frame_cycles);
+      platform_log("Cycle time: %0.05fus\n", average_us);
    }
 
    return(0);
