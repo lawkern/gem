@@ -11,7 +11,8 @@
 #define TAU 6.2831853071f
 
 #define CPU_HZ 4194304
-#define VERTICAL_REFRESH_HZ 59.73f
+#define VERTICAL_SYNC_HZ 59.73f
+#define HORIZONTAL_SYNC_HZ 9198
 
 #define GEM_BASE_RESOLUTION_WIDTH 160
 #define GEM_BASE_RESOLUTION_HEIGHT 144
@@ -709,12 +710,6 @@ load_cartridge(Memory_Arena *arena, char *file_path)
       memcpy(map.rom_banks[bank_index].memory, source, size);
       source += size;
    }
-
-   // TODO(law): This value refers the current horizontal line, and a value of
-   // 0x90 represents the beginning of a VBlank period. Since the boot ROM waits
-   // on VBlank for the logo processing, just hard code it until rendering is
-   // actually handled.
-   write_memory(0xFF44, 0x90);
 
    // NOTE(law): Ensure that this byte is set to zero on cartridge load. Setting
    // it to a non-zero value is what unmaps the boot code.
@@ -3635,4 +3630,55 @@ generate_sound_sample(Sound_Samples *destination)
    *(destination->samples + offset + 1) = sample_right;
 
    destination->sample_index++;
+}
+
+typedef struct
+{
+   unsigned int cpu;
+   unsigned int sound;
+   unsigned int horizontal_sync;
+} Clocks;
+
+#define SOUND_PERIOD (CPU_HZ / SOUND_OUTPUT_HZ)
+#define HORIZONTAL_SYNC_PERIOD (CPU_HZ / HORIZONTAL_SYNC_HZ)
+
+static void
+cpu_tick(Clocks *clocks, Sound_Samples *sound)
+{
+   if(!map.boot_complete && read_memory(0xFF50))
+   {
+      map.boot_complete = true;
+   }
+
+   handle_interrupts();
+   unsigned int cycles = fetch_and_execute();
+
+   clocks->cpu += cycles;
+   clocks->sound += cycles;
+   clocks->horizontal_sync += cycles;
+
+   // NOTE(law): Sound clock.
+   if(clocks->sound >= SOUND_PERIOD)
+   {
+      clocks->sound = 0;
+
+#if DEBUG_SINE_WAVE
+      generate_debug_samples(sound, 1);
+#else
+      generate_sound_sample(sound);
+#endif
+   }
+
+   // NOTE(law): Horizontal sync clock.
+   if(clocks->horizontal_sync >= HORIZONTAL_SYNC_PERIOD)
+   {
+      clocks->horizontal_sync = 0;
+
+      unsigned char current_horizontal_line = read_memory(0xFF44);
+      if(++current_horizontal_line > 153)
+      {
+         current_horizontal_line = 0;
+      }
+      write_memory(0xFF44, current_horizontal_line);
+   }
 }

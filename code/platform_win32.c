@@ -882,11 +882,13 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    win32_load_cartridge(&arena, window, command_line);
 
    float frame_seconds_elapsed = 0;
-   float target_seconds_per_frame = 1.0f / VERTICAL_REFRESH_HZ;
-   unsigned int target_cycles_per_frame = (unsigned int)(CPU_HZ / VERTICAL_REFRESH_HZ);
+   float target_seconds_per_frame = 1.0f / VERTICAL_SYNC_HZ;
+   unsigned int target_cycles_per_frame = (unsigned int)(CPU_HZ / VERTICAL_SYNC_HZ);
 
    unsigned int clear_color = get_display_off_color(win32_global_color_scheme);
    clear(&bitmap, clear_color);
+
+   Clocks clocks = {0};
 
    LARGE_INTEGER frame_start_count;
    QueryPerformanceCounter(&frame_start_count);
@@ -912,33 +914,12 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
          win32_clear_sound_buffer(&sound_output);
       }
 
-      unsigned int frame_cycles = 0;
-      unsigned int sound_timer = 0;
       if(!win32_global_is_paused && map.load_complete)
       {
-         while(frame_cycles < target_cycles_per_frame)
+         clocks.cpu %= target_cycles_per_frame;
+         while(clocks.cpu < target_cycles_per_frame)
          {
-            if(!map.boot_complete && read_memory(0xFF50))
-            {
-               map.boot_complete = true;
-            }
-
-            handle_interrupts();
-            unsigned int instruction_cycles = fetch_and_execute();
-
-            frame_cycles += instruction_cycles;
-            sound_timer += instruction_cycles;
-
-            // NOTE(law): Read samples from sound channels at regular intervals.
-            if(sound_timer >= (CPU_HZ / SOUND_OUTPUT_HZ))
-            {
-               sound_timer = 0;
-#if DEBUG_SINE_WAVE
-               generate_debug_samples(&sound, 1);
-#else
-               generate_sound_sample(&sound);
-#endif
-            }
+            cpu_tick(&clocks, &sound);
          }
 
          // NOTE(law): Just loop over VRAM and display the contents as tiles.
@@ -989,10 +970,9 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       }
       frame_start_count = frame_end_count;
 
-      float average_us = (frame_seconds_elapsed * 1000.0f * 1000.0f) / (float)frame_cycles;
       platform_log("Frame time: %0.03fms, ", frame_seconds_elapsed * 1000.0f);
-      platform_log("Cycles: %u, ", frame_cycles);
-      platform_log("Cycle time: %0.05fus\n", average_us);
+      platform_log("Cycles: %u, ", clocks.cpu);
+      platform_log("Cycle time: %0.05fus\n", (frame_seconds_elapsed * 1000.0f * 1000.0f) / clocks.cpu);
    }
 
    return(0);
