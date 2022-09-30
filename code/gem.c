@@ -164,6 +164,13 @@ reset_arena(Memory_Arena *arena)
    arena->used = 0;
 }
 
+static void
+zero_memory(void *memory, size_t size)
+{
+   // TODO(law): Remove dependency on stdlib!
+   memset(memory, 0, size);
+}
+
 static unsigned short
 endian_swap16(unsigned short value)
 {
@@ -602,7 +609,7 @@ static void
 unload_cartridge(Memory_Arena *arena)
 {
    reset_arena(arena);
-   memset(&map, 0, sizeof(map));
+   zero_memory(&map, sizeof(map));
    register_pc = 0;
 }
 
@@ -3346,32 +3353,61 @@ dump_vram(Platform_Bitmap *bitmap, unsigned int tile_offset,
 
 #define SOUND_OUTPUT_HZ 48000
 #define SOUND_OUTPUT_CHANNEL_COUNT 2
-#define SOUND_OUTPUT_SAMPLE_SIZE sizeof(signed short)
+#define SOUND_OUTPUT_BYTES_PER_SAMPLE (SOUND_OUTPUT_CHANNEL_COUNT * sizeof(signed short))
+
+#define DEBUG_SINE_WAVE 0
+
+#define MASTER_ON_BIT 7
+#define CHANNEL1_ON_BIT 0
+#define CHANNEL2_ON_BIT 1
+#define CHANNEL3_ON_BIT 2
+#define CHANNEL4_ON_BIT 3
+
+#define MASTER_ON   ((register_nr52 >> MASTER_ON_BIT)   & 0x1)
+#define CHANNEL1_ON ((register_nr52 >> CHANNEL1_ON_BIT) & 0x1)
+#define CHANNEL2_ON ((register_nr52 >> CHANNEL2_ON_BIT) & 0x1)
+#define CHANNEL3_ON ((register_nr52 >> CHANNEL3_ON_BIT) & 0x1)
+#define CHANNEL4_ON ((register_nr52 >> CHANNEL4_ON_BIT) & 0x1)
+
+#define CHANNEL1_RESTART (register_nr14 >> 7)
+#define CHANNEL2_RESTART (register_nr24 >> 7)
+#define CHANNEL3_RESTART (register_nr34 >> 7)
+#define CHANNEL4_RESTART (register_nr44 >> 7)
 
 typedef struct
 {
    unsigned int sample_index;
-   unsigned int buffer_size;
+   unsigned int size;
+
    signed short *samples;
 } Sound_Samples;
 
 static void
+clear_sound_samples(Sound_Samples *sound)
+{
+   sound->sample_index = 0;
+   zero_memory(sound->samples, sound->size);
+}
+
+static void
 generate_debug_samples(Sound_Samples *destination, unsigned int sample_count)
 {
-   assert(destination->buffer_size >= (sample_count * SOUND_OUTPUT_SAMPLE_SIZE * SOUND_OUTPUT_CHANNEL_COUNT));
+   assert(destination->size >= (destination->sample_index + sample_count) * SOUND_OUTPUT_BYTES_PER_SAMPLE);
 
    static float wave_t = 0;
 
    float volume = 1000.0f;
    float wave_period = SOUND_OUTPUT_HZ / 256;
 
+   unsigned int offset = destination->sample_index * SOUND_OUTPUT_CHANNEL_COUNT;
    signed short *samples = destination->samples;
-   while(sample_count--)
+
+   for(unsigned int index = 0; index < (sample_count * SOUND_OUTPUT_CHANNEL_COUNT); index += SOUND_OUTPUT_CHANNEL_COUNT)
    {
       signed short sample = (signed short)(sin(wave_t) * volume);
 
-      *(samples + destination->sample_index++) = sample;
-      *(samples + destination->sample_index++) = sample;
+      *(samples + offset + index + 0) = sample;
+      *(samples + offset + index + 1) = sample;
 
       wave_t += (TAU / wave_period);
       if(wave_t > TAU)
@@ -3379,4 +3415,224 @@ generate_debug_samples(Sound_Samples *destination, unsigned int sample_count)
          wave_t = 0;
       }
    }
+
+   destination->sample_index += sample_count;
+}
+
+static void
+generate_sound_sample(Sound_Samples *destination)
+{
+   static int frame_sequncer_clock = 0;
+
+   // NOTE(law): Master volume.
+   unsigned int register_nr50 = read_memory(0xFF24);
+
+   unsigned char enable_vin_left = (register_nr50 >> 7) & 0x1;
+   unsigned char enable_vin_right = (register_nr50 >> 3) & 0x1;
+
+   unsigned char volume_left = ((register_nr50 >> 4) & 0x7) + 1; // Range of 1-8
+   unsigned char volume_right = ((register_nr50 >> 0) & 0x7) + 1; // Range of 1-8
+
+   // NOTE(law): Per-channel sound panning.
+   unsigned int register_nr51 = read_memory(0xFF25);
+
+   unsigned char channel4_left_on = (register_nr51 >> 7) & 0x1;
+   unsigned char channel3_left_on = (register_nr51 >> 6) & 0x1;
+   unsigned char channel2_left_on = (register_nr51 >> 5) & 0x1;
+   unsigned char channel1_left_on = (register_nr51 >> 4) & 0x1;
+
+   unsigned char channel4_right_on = (register_nr51 >> 3) & 0x1;
+   unsigned char channel3_right_on = (register_nr51 >> 2) & 0x1;
+   unsigned char channel2_right_on = (register_nr51 >> 1) & 0x1;
+   unsigned char channel1_right_on = (register_nr51 >> 0) & 0x1;
+
+   // NOTE(law): Channel 1 registers.
+   unsigned char register_nr10 = read_memory(0xFF10); // NOTE(law): Sweep
+   unsigned char register_nr11 = read_memory(0xFF11); // NOTE(law): Length
+   unsigned char register_nr12 = read_memory(0xFF12); // NOTE(law): Volume
+   unsigned char register_nr13 = read_memory(0xFF13); // NOTE(law): Frequency
+   unsigned char register_nr14 = read_memory(0xFF14); // NOTE(law): Control
+
+   // NOTE(law): Channel 2 registers.
+   unsigned char register_nr21 = read_memory(0xFF16); // NOTE(law): Length
+   unsigned char register_nr22 = read_memory(0xFF17); // NOTE(law): Volume
+   unsigned char register_nr23 = read_memory(0xFF18); // NOTE(law): Frequency
+   unsigned char register_nr24 = read_memory(0xFF19); // NOTE(law): Control
+
+   // NOTE(law): Channel 3 registers.
+   unsigned char register_nr30 = read_memory(0xFF30); // NOTE(law): On/off
+   unsigned char register_nr31 = read_memory(0xFF31); // NOTE(law): Length
+   unsigned char register_nr32 = read_memory(0xFF32); // NOTE(law): Volume
+   unsigned char register_nr33 = read_memory(0xFF33); // NOTE(law): Frequency
+   unsigned char register_nr34 = read_memory(0xFF34); // NOTE(law): Control
+
+   // NOTE(law): Channel 4 registers.
+   unsigned char register_nr41 = read_memory(0xFF20); // NOTE(law): Length
+   unsigned char register_nr42 = read_memory(0xFF21); // NOTE(law): Volume
+   unsigned char register_nr43 = read_memory(0xFF22); // NOTE(law): Frequency
+   unsigned char register_nr44 = read_memory(0xFF23); // NOTE(law): Control
+
+   // NOTE(law); Sound on/off.
+   unsigned char register_nr52 = read_memory(0xFF26);
+   if(MASTER_ON)
+   {
+      // NOTE(law): Restart channels that request a restart.
+      if(CHANNEL1_RESTART) register_nr52 |= (1 << CHANNEL1_ON_BIT);
+      if(CHANNEL2_RESTART) register_nr52 |= (1 << CHANNEL2_ON_BIT);
+      if(CHANNEL3_RESTART) register_nr52 |= (1 << CHANNEL3_ON_BIT);
+      if(CHANNEL4_RESTART) register_nr52 |= (1 << CHANNEL4_ON_BIT);
+   }
+   else
+   {
+      // NOTE(law): Reset the individual channel on/off bits.
+      register_nr52 = 0x00;
+   }
+
+   // NOTE(law): Write back the on/off channel changes to memory.
+   write_memory(0xFF26, register_nr52);
+
+   static char channel1_volume = 0;
+   static char channel1_envelope_period = 0;
+   static char channel1_envelope_direction = 0;
+   static float channel1_frequency = 0;
+   static float channel1_duty = 0;
+
+   // NOTE(law): Channel 1 (tone and sweep)
+   if(CHANNEL1_ON)
+   {
+      // NOTE(law): Length
+      unsigned char wave_pattern_duty = (register_nr11 >> 6) & 0x3;
+      unsigned char sound_length_data = (register_nr11 >> 0) & 0x1F; // Range: 0-63
+
+      // NOTE(law): Volume
+      unsigned char initial_volume = (register_nr12 >> 4) & 0xF; // Range 0-15
+      unsigned char envelope_direction = (register_nr12 >> 3) & 0x1; // 0 <-, 1 ->
+      unsigned char envelope_period = (register_nr12 >> 0) & 0x7; // Range 0-7
+
+      // NOTE(law): Frequency
+      unsigned char frequency_low = register_nr13;
+
+      // NOTE(law): Control
+      unsigned char counter_selection = (register_nr14 >> 6) & 0x1;
+      unsigned char frequency_high = (register_nr14 >> 0) & 0x7;
+
+      unsigned short frequency_data = ((unsigned short)frequency_high << 8) | frequency_low;
+
+      if(CHANNEL1_RESTART)
+      {
+         register_nr14 &= ~(1 << 7);
+         write_memory(0xFF14, register_nr14);
+
+         channel1_volume = initial_volume;
+         channel1_envelope_period = envelope_period;
+         channel1_envelope_direction = envelope_direction;
+         channel1_frequency = 131072.0f / (float)(2048 - frequency_data);
+         channel1_duty = 1.0f / (float)(4 - wave_pattern_duty);
+      }
+   }
+
+   // NOTE(law): Channel 2 (tone)
+   if(CHANNEL2_ON)
+   {
+      // TODO(law) Implement this channel!
+   }
+
+   // NOTE(law): Channel 3 (wave output)
+   if(CHANNEL3_ON)
+   {
+      // TODO(law) Implement this channel!
+   }
+
+   // NOTE(law): Channel 4 (noise)
+   if(CHANNEL4_ON)
+   {
+      // TODO(law) Implement this channel!
+   }
+
+   // NOTE(law): Update frame sequencer.
+   if((frame_sequncer_clock % (SOUND_OUTPUT_HZ / 256)) == 0)
+   {
+      // TODO(law): Update length counters.
+   }
+   if((frame_sequncer_clock % (SOUND_OUTPUT_HZ / 64)) == 0)
+   {
+      // TODO(law): Update volume envelope counters.
+
+      if(channel1_envelope_period)
+      {
+         static char counter = 0;
+         if(counter > 0)
+         {
+            counter--;
+         }
+
+         if(counter == 0)
+         {
+            counter = channel1_envelope_period;
+            if(channel1_volume > 0x0 && !channel1_envelope_direction)
+            {
+               channel1_volume--;
+            }
+            else if(channel1_volume < 0xF && channel1_envelope_direction)
+            {
+               channel1_volume++;
+            }
+         }
+      }
+   }
+   if((frame_sequncer_clock % (SOUND_OUTPUT_HZ / 128)) == 0)
+   {
+      // TODO(law): Update sweep counters.
+   }
+   frame_sequncer_clock++;
+
+   // NOTE(law): Fill output buffer with samples.
+   signed short sample_left = 0;
+   signed short sample_right = 0;
+
+   if(CHANNEL1_ON)
+   {
+      static float wave_position = 0;
+
+      signed short sample = (wave_position < channel1_duty)
+      ? -(signed short)channel1_volume
+      : (signed short)channel1_volume;
+
+      if(channel1_left_on) {sample_left += sample * volume_left;}
+      if(channel1_right_on) {sample_right += sample * volume_right;}
+
+      wave_position += (channel1_frequency / SOUND_OUTPUT_HZ);
+      if(wave_position >= 1.0f)
+      {
+         wave_position = 0;
+      }
+   }
+
+   if(CHANNEL2_ON)
+   {
+      signed short sample = 0;
+      if(channel1_left_on) {sample_left += sample * volume_left;}
+      if(channel1_right_on) {sample_right += sample * volume_right;}
+   }
+
+   if(CHANNEL3_ON)
+   {
+      signed short sample = 0;
+      if(channel1_left_on) {sample_left += sample * volume_left;}
+      if(channel1_right_on) {sample_right += sample * volume_right;}
+   }
+
+   if(CHANNEL4_ON)
+   {
+      signed short sample = 0;
+      if(channel1_left_on) {sample_left += sample * volume_left;}
+      if(channel1_right_on) {sample_right += sample * volume_right;}
+   }
+
+   unsigned int offset = destination->sample_index * SOUND_OUTPUT_CHANNEL_COUNT;
+
+   *(destination->samples + offset + 0) = sample_left;
+   *(destination->samples + offset + 1) = sample_right;
+
+   destination->sample_index++;
 }

@@ -397,8 +397,8 @@ win32_initialize_sound(Win32_Sound_Output *output, HWND window)
    wave_format.wFormatTag = WAVE_FORMAT_PCM;
    wave_format.nChannels = SOUND_OUTPUT_CHANNEL_COUNT;
    wave_format.nSamplesPerSec = SOUND_OUTPUT_HZ;
-   wave_format.wBitsPerSample = SOUND_OUTPUT_SAMPLE_SIZE * 8;
-   wave_format.nBlockAlign = SOUND_OUTPUT_CHANNEL_COUNT * SOUND_OUTPUT_SAMPLE_SIZE;
+   wave_format.wBitsPerSample = (SOUND_OUTPUT_BYTES_PER_SAMPLE / SOUND_OUTPUT_CHANNEL_COUNT) * 8;
+   wave_format.nBlockAlign = SOUND_OUTPUT_BYTES_PER_SAMPLE;
    wave_format.nAvgBytesPerSec = wave_format.nSamplesPerSec * wave_format.nBlockAlign;
 
    if(IDirectSoundBuffer_SetFormat(primary_buffer, &wave_format) != DS_OK)
@@ -410,7 +410,7 @@ win32_initialize_sound(Win32_Sound_Output *output, HWND window)
    DSBUFFERDESC secondary_description = {0};
    secondary_description.dwSize = sizeof(secondary_description);
    secondary_description.dwFlags = DSBCAPS_GLOBALFOCUS;
-   secondary_description.dwBufferBytes = SOUND_OUTPUT_HZ * SOUND_OUTPUT_SAMPLE_SIZE * SOUND_OUTPUT_CHANNEL_COUNT;
+   secondary_description.dwBufferBytes = SOUND_OUTPUT_HZ * SOUND_OUTPUT_BYTES_PER_SAMPLE;
    secondary_description.dwReserved = 0;
    secondary_description.lpwfxFormat = &wave_format;
 
@@ -481,30 +481,24 @@ win32_output_sound_samples(Win32_Sound_Output *output, signed short *samples, DW
    signed short *source = samples;
    signed short *destination = (signed short *)region1;
 
-   DWORD sample_count = size1 / (SOUND_OUTPUT_SAMPLE_SIZE * SOUND_OUTPUT_CHANNEL_COUNT);
+   DWORD sample_count = size1 / SOUND_OUTPUT_BYTES_PER_SAMPLE;
    for(DWORD sample_index = 0; sample_index < sample_count; ++sample_index)
    {
-      // NOTE(law): Channel 0
-      *destination++ = *source++;
-      output->index += SOUND_OUTPUT_SAMPLE_SIZE;
+      *destination++ = *source++; // NOTE(law): Channel 0
+      *destination++ = *source++; // NOTE(law): Channel 1
 
-      // NOTE(law): Channel 1
-      *destination++ = *source++;
-      output->index += SOUND_OUTPUT_SAMPLE_SIZE;
+      output->index += SOUND_OUTPUT_BYTES_PER_SAMPLE;
    }
 
    destination = (signed short *)region2;
 
-   sample_count = size2 / (SOUND_OUTPUT_SAMPLE_SIZE * SOUND_OUTPUT_CHANNEL_COUNT);
+   sample_count = size2 / SOUND_OUTPUT_BYTES_PER_SAMPLE;
    for(DWORD sample_index = 0; sample_index < sample_count; ++sample_index)
    {
-      // NOTE(law): Channel 0
-      *destination++ = *source++;
-      output->index += SOUND_OUTPUT_SAMPLE_SIZE;
+      *destination++ = *source++; // NOTE(law): Channel 0
+      *destination++ = *source++; // NOTE(law): Channel 1
 
-      // NOTE(law): Channel 1
-      *destination++ = *source++;
-      output->index += SOUND_OUTPUT_SAMPLE_SIZE;
+      output->index += SOUND_OUTPUT_BYTES_PER_SAMPLE;
    }
 
    if(IDirectSoundBuffer_Unlock(output->buffer, region1, size1, region2, size2) != DS_OK)
@@ -875,8 +869,8 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    win32_initialize_sound(&sound_output, window);
 
    Sound_Samples sound = {0};
-   sound.buffer_size = sound_output.buffer_size;
-   sound.samples = win32_allocate(sound.buffer_size);
+   sound.size = sound_output.buffer_size;
+   sound.samples = win32_allocate(sound.size);
    if(!sound.samples)
    {
       platform_log("ERROR: Windows failed to allocate our sound samples.\n");
@@ -919,6 +913,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       }
 
       unsigned int frame_cycles = 0;
+      unsigned int sound_timer = 0;
       if(!win32_global_is_paused && map.load_complete)
       {
          while(frame_cycles < target_cycles_per_frame)
@@ -929,7 +924,21 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
             }
 
             handle_interrupts();
-            frame_cycles += fetch_and_execute();
+            unsigned int instruction_cycles = fetch_and_execute();
+
+            frame_cycles += instruction_cycles;
+            sound_timer += instruction_cycles;
+
+            // NOTE(law): Read samples from sound channels at regular intervals.
+            if(sound_timer >= (CPU_HZ / SOUND_OUTPUT_HZ))
+            {
+               sound_timer = 0;
+#if DEBUG_SINE_WAVE
+               generate_debug_samples(&sound, 1);
+#else
+               generate_sound_sample(&sound);
+#endif
+            }
          }
 
          // NOTE(law): Just loop over VRAM and display the contents as tiles.
@@ -943,13 +952,24 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
          // NOTE(law): Output sound.
          DWORD sound_write_size = win32_get_sound_write_size(&sound_output);
-         unsigned int sample_count = sound_write_size / (SOUND_OUTPUT_SAMPLE_SIZE * SOUND_OUTPUT_CHANNEL_COUNT);
+         if(sound_write_size > (sound.sample_index * SOUND_OUTPUT_BYTES_PER_SAMPLE))
+         {
+            unsigned int remaining_samples = (sound_write_size / SOUND_OUTPUT_BYTES_PER_SAMPLE) - sound.sample_index;
+#if DEBUG_SINE_WAVE
+            generate_debug_samples(&sound, remaining_samples);
+#else
+            // TODO(law): This method probably won't work once longer sounds are
+            // played - the counters will become out of sync with the CPU clock.
+            while(remaining_samples--)
+            {
+               generate_sound_sample(&sound);
+            }
+#endif
+            assert(sound_write_size == sound.sample_index * SOUND_OUTPUT_BYTES_PER_SAMPLE);
+         }
 
-         generate_debug_samples(&sound, sample_count);
-         win32_output_sound_samples(&sound_output, sound.samples, sound_write_size);
-
-         sound.sample_index = 0;
-         memset(sound.samples, 0, sound.buffer_size);
+         win32_output_sound_samples(&sound_output, sound.samples, sound.sample_index * SOUND_OUTPUT_BYTES_PER_SAMPLE);
+         clear_sound_samples(&sound);
       }
 
       // NOTE(law): Blit bitmap to screen.
