@@ -28,7 +28,7 @@ typedef struct
 
 static bool linux_global_is_running;
 static bool linux_global_is_paused;
-static Monochrome_Color_Option linux_global_color_option;
+static Monochrome_Color_Scheme linux_global_color_scheme;
 
 static Display *linux_global_display;
 static XImage *linux_global_window_buffer;
@@ -163,9 +163,9 @@ linux_process_input(XEvent event)
          }
          else if(keysym == XK_c)
          {
-            if(++linux_global_color_option >= MONOCHROME_COLOR_OPTION_COUNT)
+            if(++linux_global_color_scheme >= MONOCHROME_COLOR_OPTION_COUNT)
             {
-               linux_global_color_option = 0;
+               linux_global_color_scheme = 0;
             }
          }
       }
@@ -410,16 +410,20 @@ main(int argument_count, char **arguments)
    linux_global_display = XOpenDisplay(0);
    Window window = linux_create_window(bitmap);
 
-   bool output_header = false;
-   bool output_disassembly = false;
-
    char *rom_path = arguments[argument_count - 1];
    load_cartridge(&arena, rom_path);
 
-   float target_seconds_per_frame = 1.0f / 59.7f;
    float frame_seconds_elapsed = 0;
+   float target_seconds_per_frame = 1.0f / VERTICAL_SYNC_HZ;
+   unsigned int target_cycles_per_frame = (unsigned int)(CPU_HZ / VERTICAL_SYNC_HZ);
 
-   clear(&bitmap, linux_global_color_option);
+   unsigned int clear_color = get_display_off_color(linux_global_color_scheme);
+   clear(&bitmap, clear_color);
+
+   Clocks clocks = {0};
+   Sound_Samples sound = {0};
+   sound.size = SOUND_OUTPUT_HZ * SOUND_OUTPUT_BYTES_PER_SAMPLE;
+   sound.samples = mmap(0, sound.size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
 
    struct timespec frame_start_count;
    clock_gettime(CLOCK_MONOTONIC, &frame_start_count);
@@ -429,18 +433,30 @@ main(int argument_count, char **arguments)
    {
       linux_process_events(window);
 
+      if(!map.load_complete)
+      {
+         clear_color = get_display_off_color(linux_global_color_scheme);
+         clear(&bitmap, clear_color);
+      }
+
+      if(!linux_global_is_paused && map.load_complete)
+      {
+         clocks.cpu %= target_cycles_per_frame;
+         while(clocks.cpu < target_cycles_per_frame)
+         {
+            cpu_tick(&clocks, &sound);
+         }
+      }
+
       if(!linux_global_is_paused && map.load_complete)
       {
          // NOTE(law): Just loop over VRAM and display all the data as tiles.
          static int tile_offset = 0;
-         static bool is_object = false;
+         dump_vram(&bitmap, tile_offset++, PALETTE_DATA_BG, linux_global_color_scheme);
 
-         render_tiles(&bitmap, tile_offset++, is_object, linux_global_color_option);
-
-         if(tile_offset >= 384 || register_pc == 0)
+         if(tile_offset >= 512 || register_pc == 0)
          {
             tile_offset = 0;
-            is_object = !is_object;
          }
       }
 
@@ -451,31 +467,31 @@ main(int argument_count, char **arguments)
       struct timespec frame_end_count;
       clock_gettime(CLOCK_MONOTONIC, &frame_end_count);
 
+      unsigned int sleep_us = 0;
       unsigned int instructions_executed = 0;
       frame_seconds_elapsed = LINUX_SECONDS_ELAPSED(frame_start_count, frame_end_count);
+
+      float sleep_fraction = 0.9f;
+      if(frame_seconds_elapsed < target_seconds_per_frame)
+      {
+         sleep_us = (unsigned int)((target_seconds_per_frame - frame_seconds_elapsed) * 1000.0f * 1000.0f * sleep_fraction);
+         if(sleep_us > 0)
+         {
+            usleep(sleep_us);
+         }
+      }
+
       while(frame_seconds_elapsed < target_seconds_per_frame)
       {
-         if(!linux_global_is_paused && map.load_complete)
-         {
-            if(!map.boot_complete && read_memory(0xFF50))
-            {
-               map.boot_complete = true;
-            }
-
-            handle_interrupts();
-            fetch_and_execute();
-
-            instructions_executed++;
-         }
-
          clock_gettime(CLOCK_MONOTONIC, &frame_end_count);
          frame_seconds_elapsed = LINUX_SECONDS_ELAPSED(frame_start_count, frame_end_count);
       }
       frame_start_count = frame_end_count;
 
-      float average_us = (frame_seconds_elapsed * 1000.0f * 1000.0f) / (float)instructions_executed;
       platform_log("Frame time: %0.03fms, ", frame_seconds_elapsed * 1000.0f);
-      platform_log("Average instruction time: %0.03fus\n", average_us);
+      platform_log("Sleep: %uus, ", sleep_us);
+      platform_log("Cycles: %u, ", clocks.cpu);
+      platform_log("Cycle time: %0.05fus\n", (frame_seconds_elapsed * 1000.0f * 1000.0f) / clocks.cpu);
    }
 
    XCloseDisplay(linux_global_display);

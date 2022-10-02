@@ -231,7 +231,7 @@ read_memory(unsigned short address)
          unsigned char bank_index = 0;
          if(map.banking_mode == MEMORY_BANKING_MODE_ADVANCED)
          {
-            if(map.rom_bank_count > map.upper_rom_bank_bits);
+            if(map.rom_bank_count > map.upper_rom_bank_bits)
             {
                map.rom_selected_index = map.upper_rom_bank_bits;
             }
@@ -331,7 +331,7 @@ write_memory(unsigned short address, char value)
       if(map.banking_mode == MEMORY_BANKING_MODE_ADVANCED)
       {
          unsigned int extended_index = map.rom_selected_index + map.upper_rom_bank_bits;
-         if(map.rom_bank_count > extended_index);
+         if(map.rom_bank_count > extended_index)
          {
             map.rom_selected_index = extended_index;
          }
