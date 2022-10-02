@@ -40,6 +40,8 @@ enum
    WIN32_MENU_VIEW_RESOLUTION_4X,
    WIN32_MENU_VIEW_RESOLUTION_8X,
    WIN32_MENU_VIEW_FULLSCREEN,
+   WIN32_MENU_CONTROL_PLAY,
+   WIN32_MENU_CONTROL_PAUSE,
    WIN32_TOOLBAR,
    WIN32_REBAR,
    WIN32_STATUS_BAR,
@@ -536,6 +538,25 @@ win32_output_sound_samples(Win32_Sound_Output *output, signed short *samples, DW
    }
 }
 
+static void
+win32_set_pause_state(HWND window, bool paused)
+{
+   win32_global_is_paused = paused;
+
+   HWND toolbar = GetDlgItem(GetDlgItem(window, WIN32_REBAR), WIN32_TOOLBAR);
+   if(toolbar)
+   {
+      WPARAM play_button = (WPARAM)WIN32_MENU_CONTROL_PLAY;
+      WPARAM pause_button = (WPARAM)WIN32_MENU_CONTROL_PAUSE;
+
+      LPARAM enable = (LPARAM)MAKELONG(1, 0);
+      LPARAM disable = (LPARAM)MAKELONG(0, 0);
+
+      SendMessage(toolbar, TB_ENABLEBUTTON, pause_button, (paused) ? disable : enable);
+      SendMessage(toolbar, TB_ENABLEBUTTON, play_button, (paused) ? enable : disable);
+   }
+}
+
 LRESULT
 win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
@@ -578,7 +599,9 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          {
             {0, WIN32_MENU_FILE_OPEN, TBSTATE_ENABLED, TBSTYLE_BUTTON, {0}, 0, (INT_PTR)"Load Cartridge"},
             // {0, 0, 0, TBSTYLE_SEP},
-            {1, WIN32_MENU_VIEW_FULLSCREEN, TBSTATE_ENABLED, TBSTYLE_BUTTON, {0}, 0, (INT_PTR)"Fullscreen"},
+            {1, WIN32_MENU_CONTROL_PLAY, 0, TBSTYLE_BUTTON, {0}, 0, (INT_PTR)"Play"},
+            {2, WIN32_MENU_CONTROL_PAUSE, TBSTATE_ENABLED, TBSTYLE_BUTTON, {0}, 0, (INT_PTR)"Pause"},
+            {3, WIN32_MENU_VIEW_FULLSCREEN, TBSTATE_ENABLED, TBSTYLE_BUTTON, {0}, 0, (INT_PTR)"Fullscreen"},
          };
 
          HBITMAP toolbar_bitmap = LoadBitmapA(GetModuleHandle(0), MAKEINTRESOURCE(WIN32_TOOLBAR_BUTTONS_BITMAP));
@@ -693,6 +716,16 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
             {
                win32_toggle_fullscreen(window);
             } break;
+
+            case WIN32_MENU_CONTROL_PLAY:
+            {
+               win32_set_pause_state(window, false);
+            } break;
+
+            case WIN32_MENU_CONTROL_PAUSE:
+            {
+               win32_set_pause_state(window, true);
+            } break;
          }
       } break;
 
@@ -769,7 +802,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
             }
             else if(wparam == 'P')
             {
-               win32_global_is_paused = !win32_global_is_paused;
+               win32_set_pause_state(window, !win32_global_is_paused);
             }
             else if(wparam == 'C')
             {
