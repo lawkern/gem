@@ -849,6 +849,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
    InitCommonControls();
    QueryPerformanceFrequency(&win32_global_counts_per_second);
+   bool sleep_is_granular = (timeBeginPeriod(1) == TIMERR_NOERROR);
 
    WNDCLASSEXA window_class = {0};
    window_class.cbSize = sizeof(window_class);
@@ -1030,8 +1031,23 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       // NOTE(law): Calculate elapsed frame time.
       LARGE_INTEGER frame_end_count;
       QueryPerformanceCounter(&frame_end_count);
-
       frame_seconds_elapsed = WIN32_SECONDS_ELAPSED(frame_start_count, frame_end_count);
+
+      // NOTE(law): If possible, sleep for some of the remaining frame time. The
+      // sleep time calculation intentionally undershoots to prevent
+      // oversleeping due to the lack of sub-millisecond granualarity.
+      DWORD sleep_ms = 0;
+      float sleep_fraction = 0.9f;
+      if(sleep_is_granular && (frame_seconds_elapsed < target_seconds_per_frame))
+      {
+         sleep_ms = (DWORD)((target_seconds_per_frame - frame_seconds_elapsed) * 1000.0f * sleep_fraction);
+         if(sleep_ms > 0)
+         {
+            Sleep(sleep_ms);
+         }
+      }
+
+      // NOTE(law): Spin lock for the remaining frame time.
       while(frame_seconds_elapsed < target_seconds_per_frame)
       {
          QueryPerformanceCounter(&frame_end_count);
@@ -1040,6 +1056,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       frame_start_count = frame_end_count;
 
       platform_log("Frame time: %0.03fms, ", frame_seconds_elapsed * 1000.0f);
+      platform_log("Sleep: %ums, ", sleep_ms);
       platform_log("Cycles: %u, ", clocks.cpu);
       platform_log("Cycle time: %0.05fus\n", (frame_seconds_elapsed * 1000.0f * 1000.0f) / clocks.cpu);
    }
