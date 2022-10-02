@@ -592,16 +592,15 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          SetMenu(window, win32_global_menu);
 
          // NOTE(law): Create toolbar.
-         HWND toolbar = CreateWindowA(TOOLBARCLASSNAME, 0, WS_CHILD|WS_VISIBLE|CCS_NODIVIDER|TBSTYLE_FLAT|TBSTYLE_TOOLTIPS,
+         HWND toolbar = CreateWindowA(TOOLBARCLASSNAME, 0, WS_CHILD|WS_VISIBLE|CCS_NODIVIDER|CCS_NOPARENTALIGN|TBSTYLE_FLAT|TBSTYLE_TOOLTIPS,
                                       0, 0, 0, 0, window, (HMENU)WIN32_TOOLBAR, GetModuleHandle(0), 0);
 
          TBBUTTON buttons[] =
          {
-            {0, WIN32_MENU_FILE_OPEN, TBSTATE_ENABLED, TBSTYLE_BUTTON, {0}, 0, (INT_PTR)"Load Cartridge"},
-            // {0, 0, 0, TBSTYLE_SEP},
-            {1, WIN32_MENU_CONTROL_PLAY, 0, TBSTYLE_BUTTON, {0}, 0, (INT_PTR)"Play"},
-            {2, WIN32_MENU_CONTROL_PAUSE, TBSTATE_ENABLED, TBSTYLE_BUTTON, {0}, 0, (INT_PTR)"Pause"},
-            {3, WIN32_MENU_VIEW_FULLSCREEN, TBSTATE_ENABLED, TBSTYLE_BUTTON, {0}, 0, (INT_PTR)"Fullscreen"},
+            {0, WIN32_MENU_FILE_OPEN, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)"Open"},
+            {1, WIN32_MENU_CONTROL_PLAY, 0, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)"Play"},
+            {2, WIN32_MENU_CONTROL_PAUSE, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)"Pause"},
+            {3, WIN32_MENU_VIEW_FULLSCREEN, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)"Fullscreen"},
          };
 
          HBITMAP toolbar_bitmap = LoadBitmapA(GetModuleHandle(0), MAKEINTRESOURCE(WIN32_TOOLBAR_BUTTONS_BITMAP));
@@ -611,23 +610,30 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          SendMessage(toolbar, TB_BUTTONSTRUCTSIZE, (WPARAM)sizeof(TBBUTTON), 0);
          SendMessage(toolbar, TB_SETIMAGELIST, 0, (LPARAM)image_list);
          SendMessage(toolbar, TB_ADDBUTTONS, ARRAY_LENGTH(buttons), (LPARAM)&buttons);
-         SendMessage(toolbar, TB_SETMAXTEXTROWS, 0, 0);
+
+         SendMessage(toolbar, TB_SETPADDING, 0, MAKELONG(8, 0));
+         SendMessage(toolbar, TB_SETMAXTEXTROWS, 1, 0); // NOTE(law): Turn on labels.
+         // SendMessage(toolbar, TB_SETMAXTEXTROWS, 0, 0); // NOTE(law): Turn off labels, only use text as tooltips.
 
          // NOTE(law): Create rebar container for toolbar.
-         HWND rebar = CreateWindow(REBARCLASSNAME, 0, WS_CHILD|WS_VISIBLE|WS_CLIPCHILDREN|CCS_NODIVIDER|RBS_BANDBORDERS,
+         HWND rebar = CreateWindow(REBARCLASSNAME, 0, WS_CHILD|WS_VISIBLE|CCS_NODIVIDER|RBS_BANDBORDERS,
                                    0, 0, 0, 0, window, (HMENU)WIN32_REBAR, GetModuleHandle(0), 0);
 
          DWORD button_size = (DWORD)SendMessage(toolbar, TB_GETBUTTONSIZE, 0, 0);
-         DWORD button_width = HIWORD(button_size);
-         DWORD button_height = LOWORD(button_size);
+         DWORD button_width = LOWORD(button_size);
+         DWORD button_height = HIWORD(button_size);
+
+         DWORD padding_size = (DWORD)SendMessage(toolbar, TB_GETPADDING, 0, 0);
+         DWORD padding_width = LOWORD(padding_size);
+         DWORD padding_height = HIWORD(padding_size);
 
          REBARBANDINFO band = {sizeof(band)};
          band.fMask = RBBIM_STYLE|RBBIM_CHILD|RBBIM_CHILDSIZE|RBBIM_SIZE;
          band.fStyle = RBBS_CHILDEDGE;
          band.hwndChild = toolbar;
-         band.cxMinChild = ARRAY_LENGTH(buttons) * button_width;
-         band.cyMinChild = button_height;
-         SendMessage(rebar, RB_INSERTBAND, (WPARAM)0, (LPARAM)&band);
+         band.cxMinChild = ARRAY_LENGTH(buttons) * (button_width + padding_width);
+         band.cyMinChild = button_height + (padding_height * 2);
+         SendMessage(rebar, RB_INSERTBAND, (WPARAM)-1, (LPARAM)&band);
 
          // NOTE(law): Create window status bar.
          CreateWindowA(STATUSCLASSNAME, 0, WS_CHILD|WS_VISIBLE, 0, 0, 0, 0, window, (HMENU)WIN32_STATUS_BAR, GetModuleHandle(0), 0);
@@ -635,7 +641,10 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 
       case WM_SIZE:
       {
-         HWND toolbar = GetDlgItem(window, WIN32_TOOLBAR);
+         HWND rebar = GetDlgItem(window, WIN32_REBAR);
+         SendMessage(rebar, WM_SIZE, 0, 0);
+
+         HWND toolbar = GetDlgItem(rebar, WIN32_TOOLBAR);
          SendMessage(toolbar, TB_AUTOSIZE, 0, 0);
 
          HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
