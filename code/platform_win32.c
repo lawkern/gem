@@ -22,7 +22,6 @@ static Platform_Bitmap *win32_global_bitmap;
 static BITMAPINFO *win32_global_bitmap_info;
 
 static HMENU win32_global_menu;
-static HWND win32_global_status_bar;
 static WINDOWPLACEMENT win32_global_previous_window_placement =
 {
    sizeof(win32_global_previous_window_placement)
@@ -41,6 +40,8 @@ enum
    WIN32_MENU_VIEW_RESOLUTION_4X,
    WIN32_MENU_VIEW_RESOLUTION_8X,
    WIN32_MENU_VIEW_FULLSCREEN,
+   WIN32_TOOLBAR,
+   WIN32_REBAR,
    WIN32_STATUS_BAR,
 };
 
@@ -187,9 +188,10 @@ win32_toggle_fullscreen(HWND window)
          SetWindowPos(window, HWND_TOP, x, y, width, height, SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
       }
 
-      // NOTE(law): Hide menu bar and status bar in fullscreen mode.
+      // NOTE(law): Hide Windows UI in fullscreen mode.
       SetMenu(window, 0);
-      ShowWindow(win32_global_status_bar, SW_HIDE);
+      ShowWindow(GetDlgItem(window, WIN32_STATUS_BAR), SW_HIDE);
+      ShowWindow(GetDlgItem(window, WIN32_REBAR), SW_HIDE);
    }
    else
    {
@@ -197,10 +199,10 @@ win32_toggle_fullscreen(HWND window)
       SetWindowPlacement(window, &win32_global_previous_window_placement);
       SetWindowPos(window, 0, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
 
-      // NOTE(law): Display menu bar and status bar again after exiting
-      // fullscreen mode.
+      // NOTE(law): Show Windows UI after exiting fullscreen mode.
       SetMenu(window, win32_global_menu);
-      ShowWindow(win32_global_status_bar, SW_SHOW);
+      ShowWindow(GetDlgItem(window, WIN32_STATUS_BAR), SW_SHOW);
+      ShowWindow(GetDlgItem(window, WIN32_REBAR), SW_SHOW);
    }
 }
 
@@ -214,19 +216,39 @@ win32_is_fullscreen(HWND window)
 }
 
 static unsigned int
+win32_get_toolbar_height(HWND window)
+{
+   unsigned int result = 0;
+
+   // TODO(law): Determine if this query is too slow to process every frame.
+
+   // NOTE(law): The rebar window contains the toolbar, and should be used to
+   // calculate its height.
+   HWND toolbar = GetDlgItem(window, WIN32_REBAR);
+   if(IsWindowVisible(toolbar))
+   {
+      RECT rect = {0};
+      GetWindowRect(toolbar, &rect);
+
+      result += rect.bottom - rect.top;
+   }
+
+   return(result);
+}
+
+static unsigned int
 win32_get_status_height(HWND window)
 {
    unsigned int result = 0;
 
    // TODO(law): Determine if this query is too slow to process every frame.
    HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
-
    if(IsWindowVisible(status_bar))
    {
-      RECT status_rect = {0};
-      GetWindowRect(status_bar, &status_rect);
+      RECT rect = {0};
+      GetWindowRect(status_bar, &rect);
 
-      result = status_rect.bottom - status_rect.top;
+      result += rect.bottom - rect.top;
    }
 
    return(result);
@@ -249,6 +271,9 @@ win32_set_resolution_scale(HWND window, unsigned int scale)
       unsigned int window_width  = window_rect.right - window_rect.left;
       unsigned int window_height = window_rect.bottom - window_rect.top;
 
+      unsigned int toolbar_height = win32_get_toolbar_height(window);
+      window_height += toolbar_height;
+
       unsigned int status_height = win32_get_status_height(window);
       window_height += status_height;
 
@@ -264,6 +289,9 @@ win32_display_bitmap(Platform_Bitmap bitmap, HWND window, HDC device_context)
 
    int client_width = client_rect.right - client_rect.left;
    int client_height = client_rect.bottom - client_rect.top;
+
+   unsigned int toolbar_height = win32_get_toolbar_height(window);
+   client_height -= toolbar_height;
 
    unsigned int status_height = win32_get_status_height(window);
    client_height -= status_height;
@@ -285,8 +313,8 @@ win32_display_bitmap(Platform_Bitmap bitmap, HWND window, HDC device_context)
       target_height = client_height;
       gutter_width = (client_width - target_width) / 2;
 
-      PatBlt(device_context, 0, 0, gutter_width, target_height, BLACKNESS);
-      PatBlt(device_context, client_width - gutter_width, 0, gutter_width, target_height, BLACKNESS);
+      PatBlt(device_context, 0, toolbar_height, gutter_width, target_height, BLACKNESS);
+      PatBlt(device_context, client_width - gutter_width, toolbar_height, gutter_width, target_height, BLACKNESS);
    }
    else if(client_aspect_ratio < target_aspect_ratio)
    {
@@ -297,12 +325,12 @@ win32_display_bitmap(Platform_Bitmap bitmap, HWND window, HDC device_context)
       target_height = (int)((1.0f / target_aspect_ratio) * (float)client_width);
       gutter_height = (client_height - target_height) / 2;
 
-      PatBlt(device_context, 0, 0, target_width, gutter_height, BLACKNESS);
-      PatBlt(device_context, 0, client_height - gutter_height, target_width, gutter_height, BLACKNESS);
+      PatBlt(device_context, 0, toolbar_height, target_width, gutter_height, BLACKNESS);
+      PatBlt(device_context, 0, toolbar_height + client_height - gutter_height, target_width, gutter_height, BLACKNESS);
    }
 
    StretchDIBits(device_context,
-                 gutter_width, gutter_height, target_width, target_height, // Destination
+                 gutter_width, gutter_height + toolbar_height, target_width, target_height, // Destination
                  0, 0, bitmap.width, bitmap.height, // Source
                  bitmap.memory, win32_global_bitmap_info, DIB_RGB_COLORS, SRCCOPY);
 }
@@ -528,7 +556,6 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          AppendMenu(win32_global_menu, MF_STRING|MF_POPUP, (UINT_PTR)file_menu, "&File");
 
          HMENU view_menu = CreatePopupMenu();
-
          AppendMenu(view_menu, MF_STRING|MF_CHECKED, WIN32_MENU_VIEW_COLOR_DMG, "Dot Matrix Color Scheme");
          AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_COLOR_MGB, "Pocket Color Scheme");
          AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_COLOR_LIGHT, "Light Color Scheme");
@@ -543,13 +570,51 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 
          SetMenu(window, win32_global_menu);
 
+         // NOTE(law): Create toolbar.
+         HWND toolbar = CreateWindowA(TOOLBARCLASSNAME, 0, WS_CHILD|WS_VISIBLE|CCS_NODIVIDER|TBSTYLE_FLAT|TBSTYLE_TOOLTIPS,
+                                      0, 0, 0, 0, window, (HMENU)WIN32_TOOLBAR, GetModuleHandle(0), 0);
+
+         TBBUTTON buttons[] =
+         {
+            {0, WIN32_MENU_FILE_OPEN, TBSTATE_ENABLED, TBSTYLE_BUTTON, {0}, 0, (INT_PTR)"Load Cartridge"},
+            // {0, 0, 0, TBSTYLE_SEP},
+            {1, WIN32_MENU_VIEW_FULLSCREEN, TBSTATE_ENABLED, TBSTYLE_BUTTON, {0}, 0, (INT_PTR)"Fullscreen"},
+         };
+
+         HBITMAP toolbar_bitmap = LoadBitmapA(GetModuleHandle(0), MAKEINTRESOURCE(WIN32_TOOLBAR_BUTTONS_BITMAP));
+         HIMAGELIST image_list = ImageList_Create(24, 24, ILC_MASK|ILC_COLORDDB, ARRAY_LENGTH(buttons), 1);
+         ImageList_AddMasked(image_list, toolbar_bitmap, RGB(0, 0, 0));
+
+         SendMessage(toolbar, TB_BUTTONSTRUCTSIZE, (WPARAM)sizeof(TBBUTTON), 0);
+         SendMessage(toolbar, TB_SETIMAGELIST, 0, (LPARAM)image_list);
+         SendMessage(toolbar, TB_ADDBUTTONS, ARRAY_LENGTH(buttons), (LPARAM)&buttons);
+         SendMessage(toolbar, TB_SETMAXTEXTROWS, 0, 0);
+
+         // NOTE(law): Create rebar container for toolbar.
+         HWND rebar = CreateWindow(REBARCLASSNAME, 0, WS_CHILD|WS_VISIBLE|WS_CLIPCHILDREN|CCS_NODIVIDER|RBS_BANDBORDERS,
+                                   0, 0, 0, 0, window, (HMENU)WIN32_REBAR, GetModuleHandle(0), 0);
+
+         DWORD button_size = (DWORD)SendMessage(toolbar, TB_GETBUTTONSIZE, 0, 0);
+         DWORD button_width = HIWORD(button_size);
+         DWORD button_height = LOWORD(button_size);
+
+         REBARBANDINFO band = {sizeof(band)};
+         band.fMask = RBBIM_STYLE|RBBIM_CHILD|RBBIM_CHILDSIZE|RBBIM_SIZE;
+         band.fStyle = RBBS_CHILDEDGE;
+         band.hwndChild = toolbar;
+         band.cxMinChild = ARRAY_LENGTH(buttons) * button_width;
+         band.cyMinChild = button_height;
+         SendMessage(rebar, RB_INSERTBAND, (WPARAM)0, (LPARAM)&band);
+
          // NOTE(law): Create window status bar.
-         win32_global_status_bar = CreateWindowA(STATUSCLASSNAME, 0, WS_CHILD|WS_VISIBLE, 0, 0, 0, 0,
-                                                 window, (HMENU)WIN32_STATUS_BAR, GetModuleHandle(0), 0);
+         CreateWindowA(STATUSCLASSNAME, 0, WS_CHILD|WS_VISIBLE, 0, 0, 0, 0, window, (HMENU)WIN32_STATUS_BAR, GetModuleHandle(0), 0);
       } break;
 
       case WM_SIZE:
       {
+         HWND toolbar = GetDlgItem(window, WIN32_TOOLBAR);
+         SendMessage(toolbar, TB_AUTOSIZE, 0, 0);
+
          HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
          SendMessage(status_bar, WM_SIZE, 0, 0);
       }
@@ -657,6 +722,10 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
                win32_global_is_running = false;
             }
             else if(alt_key_pressed && wparam == VK_RETURN)
+            {
+               win32_toggle_fullscreen(window);
+            }
+            else if(wparam == VK_ESCAPE && win32_is_fullscreen(window))
             {
                win32_toggle_fullscreen(window);
             }

@@ -1,6 +1,7 @@
 #include <windows.h>
 
 WIN32_ICON ICON "gem.ico"
+WIN32_TOOLBAR_BUTTONS_BITMAP BITMAP "toolbar_buttons24.bmp"
 
 1 VERSIONINFO
 FILEVERSION 0,0,0,1
