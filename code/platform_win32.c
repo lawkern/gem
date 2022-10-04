@@ -2,6 +2,17 @@
 /* (c) copyright 2022 Lawrence D. Kern /////////////////////////////////////// */
 /* /////////////////////////////////////////////////////////////////////////// */
 
+// TODO(law): While most of the internal win32 functions defined in this file
+// now support both ANSI and wide character strings, the PLATFORM_*
+// implementations (and any functions that work on the same strings) currently
+// only support 8-bit ANSI strings. Odds are any eventual unicode support in the
+// main code will not want to use Windows-style UTF-16. Not sure how much we
+// care in the end, since this really only amounts to file paths and log
+// messages.
+
+// #define UNICODE 0
+// #define _UNICODE 0
+
 #include <windows.h>
 #include <commctrl.h>
 #include <dsound.h>
@@ -126,7 +137,7 @@ win32_load_cartridge(struct memory_arena *arena, HWND window, char *file_path)
    if(map.load_complete)
    {
       HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
-      SendMessage(status_bar, WM_SETTEXT, 0, (LPARAM)file_path);
+      SendMessageA(status_bar, WM_SETTEXT, 0, (LPARAM)file_path);
 
       EnableMenuItem(win32_global_menu, WIN32_MENU_FILE_CLOSE, MF_ENABLED);
    }
@@ -149,7 +160,7 @@ win32_open_file_dialog(struct memory_arena *arena, HWND window)
    // TODO(law): We want something better than MAX_PATH here.
    char file_name[MAX_PATH] = "";
 
-   OPENFILENAME open_file_name = {0};
+   OPENFILENAMEA open_file_name = {0};
    open_file_name.lStructSize = sizeof(open_file_name);
    open_file_name.hwndOwner = window;
    open_file_name.lpstrFilter = "(*.gb)\0*.gb\0All Files (*.*)\0*.*\0";
@@ -158,7 +169,7 @@ win32_open_file_dialog(struct memory_arena *arena, HWND window)
    open_file_name.Flags = OFN_EXPLORER|OFN_PATHMUSTEXIST;
    open_file_name.lpstrDefExt = "gb";
 
-   if(GetOpenFileName(&open_file_name))
+   if(GetOpenFileNameA(&open_file_name))
    {
       win32_load_cartridge(arena, window, file_name);
    }
@@ -381,7 +392,7 @@ win32_initialize_sound(struct win32_sound_output *output, HWND window)
 {
    ZeroMemory(output, sizeof(*output));
 
-   HMODULE library = LoadLibraryA("dsound.dll");
+   HMODULE library = LoadLibrary(TEXT("dsound.dll"));
    if(!library)
    {
       platform_log("ERROR: Windows failed to load dsound.dll.\n");
@@ -568,40 +579,40 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          win32_global_menu = CreateMenu();
 
          HMENU file_menu = CreatePopupMenu();
-         AppendMenu(file_menu, MF_STRING, WIN32_MENU_FILE_OPEN, "&Load Cartridge\tCtrl+O");
-         AppendMenu(file_menu, MF_STRING|MF_GRAYED, WIN32_MENU_FILE_CLOSE, "&Unload Cartridge");
+         AppendMenu(file_menu, MF_STRING, WIN32_MENU_FILE_OPEN, TEXT("&Load Cartridge\tCtrl+O"));
+         AppendMenu(file_menu, MF_STRING|MF_GRAYED, WIN32_MENU_FILE_CLOSE, TEXT("&Unload Cartridge"));
          AppendMenu(file_menu, MF_SEPARATOR, 0, 0);
-         AppendMenu(file_menu, MF_STRING, WIN32_MENU_FILE_EXIT, "E&xit\tAlt+F4");
-         AppendMenu(win32_global_menu, MF_STRING|MF_POPUP, (UINT_PTR)file_menu, "&File");
+         AppendMenu(file_menu, MF_STRING, WIN32_MENU_FILE_EXIT, TEXT("E&xit\tAlt+F4"));
+         AppendMenu(win32_global_menu, MF_STRING|MF_POPUP, (UINT_PTR)file_menu, TEXT("&File"));
 
          HMENU view_menu = CreatePopupMenu();
-         AppendMenu(view_menu, MF_STRING|MF_CHECKED, WIN32_MENU_VIEW_COLOR_DMG, "Dot Matrix Color Scheme");
-         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_COLOR_MGB, "Pocket Color Scheme");
-         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_COLOR_LIGHT, "Light Color Scheme");
+         AppendMenu(view_menu, MF_STRING|MF_CHECKED, WIN32_MENU_VIEW_COLOR_DMG, TEXT("Dot Matrix Color Scheme"));
+         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_COLOR_MGB, TEXT("Pocket Color Scheme"));
+         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_COLOR_LIGHT, TEXT("Light Color Scheme"));
          AppendMenu(view_menu, MF_SEPARATOR, 0, 0);
-         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_1X, "&1x Resolution (160 x 144)\t1");
-         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_2X, "&2x Resolution (320 x 288)\t2");
-         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_4X, "&4x Resolution (640 x 576)\t4");
-         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_8X, "&8x Resolution (1280 x 1152)\t8");
+         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_1X, TEXT("&1x Resolution (160 x 144)\t1"));
+         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_2X, TEXT("&2x Resolution (320 x 288)\t2"));
+         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_4X, TEXT("&4x Resolution (640 x 576)\t4"));
+         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_8X, TEXT("&8x Resolution (1280 x 1152)\t8"));
          AppendMenu(view_menu, MF_SEPARATOR, 0, 0);
-         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_FULLSCREEN, "Toggle &Fullscreen\tAlt-Enter");
-         AppendMenu(win32_global_menu, MF_STRING|MF_POPUP, (UINT_PTR)view_menu, "&View");
+         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_FULLSCREEN, TEXT("Toggle &Fullscreen\tAlt-Enter"));
+         AppendMenu(win32_global_menu, MF_STRING|MF_POPUP, (UINT_PTR)view_menu, TEXT("&View"));
 
          SetMenu(window, win32_global_menu);
 
          // NOTE(law): Create toolbar.
-         HWND toolbar = CreateWindowA(TOOLBARCLASSNAME, 0, WS_CHILD|WS_VISIBLE|CCS_NODIVIDER|CCS_NOPARENTALIGN|TBSTYLE_FLAT|TBSTYLE_TOOLTIPS,
-                                      0, 0, 0, 0, window, (HMENU)WIN32_TOOLBAR, GetModuleHandle(0), 0);
+         HWND toolbar = CreateWindow(TOOLBARCLASSNAME, 0, WS_CHILD|WS_VISIBLE|CCS_NODIVIDER|CCS_NOPARENTALIGN|TBSTYLE_FLAT|TBSTYLE_TOOLTIPS,
+                                     0, 0, 0, 0, window, (HMENU)WIN32_TOOLBAR, GetModuleHandle(0), 0);
 
          TBBUTTON buttons[] =
          {
-            {0, WIN32_MENU_FILE_OPEN, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)"Open"},
-            {1, WIN32_MENU_CONTROL_PLAY, 0, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)"Play"},
-            {2, WIN32_MENU_CONTROL_PAUSE, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)"Pause"},
-            {3, WIN32_MENU_VIEW_FULLSCREEN, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)"Fullscreen"},
+            {0, WIN32_MENU_FILE_OPEN, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)TEXT("Open")},
+            {1, WIN32_MENU_CONTROL_PLAY, 0, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)TEXT("Play")},
+            {2, WIN32_MENU_CONTROL_PAUSE, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)TEXT("Pause")},
+            {3, WIN32_MENU_VIEW_FULLSCREEN, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)TEXT("Fullscreen")},
          };
 
-         HBITMAP toolbar_bitmap = LoadBitmapA(GetModuleHandle(0), MAKEINTRESOURCE(WIN32_TOOLBAR_BUTTONS_BITMAP));
+         HBITMAP toolbar_bitmap = LoadBitmap(GetModuleHandle(0), MAKEINTRESOURCE(WIN32_TOOLBAR_BUTTONS_BITMAP));
          HIMAGELIST image_list = ImageList_Create(24, 24, ILC_MASK|ILC_COLORDDB, ARRAY_LENGTH(buttons), 1);
          ImageList_AddMasked(image_list, toolbar_bitmap, RGB(0, 0, 0));
 
@@ -634,7 +645,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          SendMessage(rebar, RB_INSERTBAND, (WPARAM)-1, (LPARAM)&band);
 
          // NOTE(law): Create window status bar.
-         CreateWindowA(STATUSCLASSNAME, 0, WS_CHILD|WS_VISIBLE, 0, 0, 0, 0, window, (HMENU)WIN32_STATUS_BAR, GetModuleHandle(0), 0);
+         CreateWindow(STATUSCLASSNAME, 0, WS_CHILD|WS_VISIBLE, 0, 0, 0, 0, window, (HMENU)WIN32_STATUS_BAR, GetModuleHandle(0), 0);
       } break;
 
       case WM_SIZE:
@@ -891,34 +902,34 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    QueryPerformanceFrequency(&win32_global_counts_per_second);
    bool sleep_is_granular = (timeBeginPeriod(1) == TIMERR_NOERROR);
 
-   WNDCLASSEXA window_class = {0};
+   WNDCLASSEX window_class = {0};
    window_class.cbSize = sizeof(window_class);
    window_class.style = CS_HREDRAW|CS_VREDRAW;
    window_class.lpfnWndProc = win32_window_callback;
    window_class.hInstance = instance;
    window_class.hIcon = LoadIcon(instance, MAKEINTRESOURCE(WIN32_ICON));
    window_class.hIconSm = LoadImage(instance, MAKEINTRESOURCE(WIN32_ICON), IMAGE_ICON, 16, 16, 0);
-   window_class.hCursor = LoadCursorA(0, IDC_ARROW);
-   window_class.lpszClassName = "Game_Boy_Emulator_GEM";
+   window_class.hCursor = LoadCursor(0, IDC_ARROW);
+   window_class.lpszClassName = TEXT("Game_Boy_Emulator_GEM");
 
-   if(!RegisterClassExA(&window_class))
+   if(!RegisterClassEx(&window_class))
    {
       platform_log("ERROR: Windows failed to register a window class.\n");
       return(1);
    }
 
-   HWND window = CreateWindowExA(0,
-                                 window_class.lpszClassName,
-                                 "Game Boy Emulator (GEM)",
-                                 WS_OVERLAPPEDWINDOW,
-                                 CW_USEDEFAULT,
-                                 CW_USEDEFAULT,
-                                 CW_USEDEFAULT,
-                                 CW_USEDEFAULT,
-                                 0,
-                                 0,
-                                 instance,
-                                 0);
+   HWND window = CreateWindowEx(0,
+                                window_class.lpszClassName,
+                                TEXT("Game Boy Emulator (GEM)"),
+                                WS_OVERLAPPEDWINDOW,
+                                CW_USEDEFAULT,
+                                CW_USEDEFAULT,
+                                CW_USEDEFAULT,
+                                CW_USEDEFAULT,
+                                0,
+                                0,
+                                instance,
+                                0);
 
    if(!window)
    {
