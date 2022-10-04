@@ -852,7 +852,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
                if(map.load_complete)
                {
                   platform_log("Fetching and executing instruction...\n");
-                  disassemble_instruction(register_pc);
+                  disassemble_instruction(registers.pc);
 
                   handle_interrupts();
                   fetch_and_execute();
@@ -1042,17 +1042,6 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
          {
             cpu_tick(&clocks, &bitmap, &sound);
          }
-
-#if 0
-         // NOTE(law): Just loop over VRAM and display the contents as tiles.
-         static u32 tile_offset = 0;
-         dump_vram(&bitmap, tile_offset++, PALETTE_DATA_BG, win32_global_color_scheme);
-
-         if(tile_offset >= 512 || register_pc == 0)
-         {
-            tile_offset = 0;
-         }
-#endif
 
          // NOTE(law): Output sound.
          DWORD sound_write_size = win32_get_sound_write_size(&sound_output);
