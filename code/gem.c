@@ -19,33 +19,35 @@ typedef int16_t s16;
 typedef int32_t s32;
 typedef int64_t s64;
 
-#define TAU 6.2831853071f
+#define ARRAY_LENGTH(array) (sizeof(array) / sizeof((array)[0]))
+#define MAXIMUM(a, b) ((a) > (b) ? (a) : (b))
 
-#define CPU_HZ 4194304
-#define VERTICAL_SYNC_HZ 59.73f
-#define HORIZONTAL_SYNC_HZ 9198
+#define KIBIBYTES(value) (1024LL * (value))
+#define MEBIBYTES(value) (1024LL * KIBIBYTES(value))
 
-static u8 register_a;
-static u8 register_b;
-static u8 register_c;
-static u8 register_d;
-static u8 register_e;
-static u8 register_f;
-static u8 register_h;
-static u8 register_l;
-
-static u16 register_pc;
-static u16 register_sp;
-
-static bool halt;
-static bool stop;
-static bool ime;
+// NOTE(law): Anything prepended with PLATFORM_ is implemented on a per-platform
+// basis - that is, Win32 and Linux implement there own versions of file
+// loading, logging, etc with the API defined below.
 
 struct platform_file
 {
    size_t size;
    u8 *memory;
 };
+
+#define PLATFORM_LOG(name) void name(char *format, ...)
+#define PLATFORM_FREE_FILE(name) void name(struct platform_file *file)
+#define PLATFORM_LOAD_FILE(name) struct platform_file name(char *file_path)
+
+static PLATFORM_LOG(platform_log);
+static PLATFORM_FREE_FILE(platform_free_file);
+static PLATFORM_LOAD_FILE(platform_load_file);
+
+#define TAU 6.2831853071f
+
+#define CPU_HZ 4194304
+#define VERTICAL_SYNC_HZ 59.73f
+#define HORIZONTAL_SYNC_HZ 9198
 
 struct memory_arena
 {
@@ -104,20 +106,82 @@ static struct
    bool ram_enabled;
 } map;
 
+static struct
+{
+   u8 a;
+   u8 b;
+   u8 c;
+   u8 d;
+   u8 e;
+   u8 f;
+   u8 h;
+   u8 l;
 
-#define PLATFORM_LOG(name) void name(char *format, ...)
-#define PLATFORM_FREE_FILE(name) void name(struct platform_file *file)
-#define PLATFORM_LOAD_FILE(name) struct platform_file name(char *file_path)
+   u16 pc;
+   u16 sp;
+} registers;
 
-static PLATFORM_LOG(platform_log);
-static PLATFORM_FREE_FILE(platform_free_file);
-static PLATFORM_LOAD_FILE(platform_load_file);
+#define REGISTER_BC (((u16)registers.b << 8) | (u16)registers.c)
+#define REGISTER_DE (((u16)registers.d << 8) | (u16)registers.e)
+#define REGISTER_HL (((u16)registers.h << 8) | (u16)registers.l)
+#define REGISTER_AF (((u16)registers.a << 8) | (u16)registers.f)
 
-#define ARRAY_LENGTH(array) (sizeof(array) / sizeof((array)[0]))
-#define MAXIMUM(a, b) ((a) > (b) ? (a) : (b))
+#define REGISTER_IE 0xFFFF
+#define REGISTER_IF 0xFF0F
 
-#define KIBIBYTES(value) (1024LL * (value))
-#define MEBIBYTES(value) (1024LL * KIBIBYTES(value))
+#define FLAG_Z_BIT 7
+#define FLAG_N_BIT 6
+#define FLAG_H_BIT 5
+#define FLAG_C_BIT 4
+
+#define FLAG_Z_MASK (1 << FLAG_Z_BIT)
+#define FLAG_N_MASK (1 << FLAG_N_BIT)
+#define FLAG_H_MASK (1 << FLAG_H_BIT)
+#define FLAG_C_MASK (1 << FLAG_C_BIT)
+
+#define FLAG_Z ((registers.f >> FLAG_Z_BIT) & 0x1)
+#define FLAG_N ((registers.f >> FLAG_N_BIT) & 0x1)
+#define FLAG_H ((registers.f >> FLAG_H_BIT) & 0x1)
+#define FLAG_C ((registers.f >> FLAG_C_BIT) & 0x1)
+
+#define INTERRUPT_VBLANK_BIT   0
+#define INTERRUPT_LCD_STAT_BIT 1
+#define INTERRUPT_TIMER_BIT    2
+#define INTERRUPT_SERIAL_BIT   3
+#define INTERRUPT_JOYPAD_BIT   4
+
+#define INTERRUPT_VBLANK_MASK   (1 << INTERRUPT_VBLANK_BIT)
+#define INTERRUPT_LCD_STAT_MASK (1 << INTERRUPT_LCD_STAT_BIT)
+#define INTERRUPT_TIMER_MASK    (1 << INTERRUPT_TIMER_BIT)
+#define INTERRUPT_SERIAL_MASK   (1 << INTERRUPT_SERIAL_BIT)
+#define INTERRUPT_JOYPAD_MASK   (1 << INTERRUPT_JOYPAD_BIT)
+
+#define ENABLE_VBLANK   ((read_memory(REGISTER_IE) >> INTERRUPT_VBLANK_BIT)   & 0x1)
+#define ENABLE_LCD_STAT ((read_memory(REGISTER_IE) >> INTERRUPT_LCD_STAT_BIT) & 0x1)
+#define ENABLE_TIMER    ((read_memory(REGISTER_IE) >> INTERRUPT_TIMER_BIT)    & 0x1)
+#define ENABLE_SERIAL   ((read_memory(REGISTER_IE) >> INTERRUPT_SERIAL_BIT)   & 0x1)
+#define ENABLE_JOYPAD   ((read_memory(REGISTER_IE) >> INTERRUPT_JOYPAD_BIT)   & 0x1)
+
+#define REQUEST_VBLANK   ((read_memory(REGISTER_IF) >> INTERRUPT_VBLANK_BIT)   & 0x1)
+#define REQUEST_LCD_STAT ((read_memory(REGISTER_IF) >> INTERRUPT_LCD_STAT_BIT) & 0x1)
+#define REQUEST_TIMER    ((read_memory(REGISTER_IF) >> INTERRUPT_TIMER_BIT)    & 0x1)
+#define REQUEST_SERIAL   ((read_memory(REGISTER_IF) >> INTERRUPT_SERIAL_BIT)   & 0x1)
+#define REQUEST_JOYPAD   ((read_memory(REGISTER_IF) >> INTERRUPT_JOYPAD_BIT)   & 0x1)
+
+#define JOYPAD_DOWN_START_BIT 3
+#define JOYPAD_UP_SELECT_BIT  2
+#define JOYPAD_LEFT_B_BIT     1
+#define JOYPAD_RIGHT_A_BIT    0
+
+#define JOYPAD_DOWN_START_MASK (1 << JOYPAD_DOWN_START_MASK)
+#define JOYPAD_UP_SELECT_MASK  (1 << JOYPAD_UP_SELECT_MASK
+#define JOYPAD_LEFT_B_MASK     (1 << JOYPAD_LEFT_B_MASK)
+#define JOYPAD_RIGHT_A_MASK    (1 << JOYPAD_RIGHT_A_MASK)
+
+
+static bool halt;
+static bool stop;
+static bool ime;
 
 static u8 boot_rom[] =
 {
@@ -631,7 +695,7 @@ unload_cartridge(struct memory_arena *arena)
 {
    reset_arena(arena);
    zero_memory(&map, sizeof(map));
-   register_pc = 0;
+   zero_memory(&registers, sizeof(registers));
 }
 
 static void
@@ -1502,84 +1566,27 @@ disassemble_stream(u16 address, u32 byte_count)
    }
 }
 
-#define REGISTER_BC (((u16)register_b << 8) | (u16)register_c)
-#define REGISTER_DE (((u16)register_d << 8) | (u16)register_e)
-#define REGISTER_HL (((u16)register_h << 8) | (u16)register_l)
-#define REGISTER_AF (((u16)register_a << 8) | (u16)register_f)
-
-#define REGISTER_IE 0xFFFF
-#define REGISTER_IF 0xFF0F
-
-#define FLAG_Z_BIT 7
-#define FLAG_N_BIT 6
-#define FLAG_H_BIT 5
-#define FLAG_C_BIT 4
-
-#define FLAG_Z_MASK (1 << FLAG_Z_BIT)
-#define FLAG_N_MASK (1 << FLAG_N_BIT)
-#define FLAG_H_MASK (1 << FLAG_H_BIT)
-#define FLAG_C_MASK (1 << FLAG_C_BIT)
-
-#define FLAG_Z ((register_f >> FLAG_Z_BIT) & 0x1)
-#define FLAG_N ((register_f >> FLAG_N_BIT) & 0x1)
-#define FLAG_H ((register_f >> FLAG_H_BIT) & 0x1)
-#define FLAG_C ((register_f >> FLAG_C_BIT) & 0x1)
-
-#define INTERRUPT_VBLANK_BIT   0
-#define INTERRUPT_LCD_STAT_BIT 1
-#define INTERRUPT_TIMER_BIT    2
-#define INTERRUPT_SERIAL_BIT   3
-#define INTERRUPT_JOYPAD_BIT   4
-
-#define INTERRUPT_VBLANK_MASK   (1 << INTERRUPT_VBLANK_BIT)
-#define INTERRUPT_LCD_STAT_MASK (1 << INTERRUPT_LCD_STAT_BIT)
-#define INTERRUPT_TIMER_MASK    (1 << INTERRUPT_TIMER_BIT)
-#define INTERRUPT_SERIAL_MASK   (1 << INTERRUPT_SERIAL_BIT)
-#define INTERRUPT_JOYPAD_MASK   (1 << INTERRUPT_JOYPAD_BIT)
-
-#define ENABLE_VBLANK   ((read_memory(REGISTER_IE) >> INTERRUPT_VBLANK_BIT)   & 0x1)
-#define ENABLE_LCD_STAT ((read_memory(REGISTER_IE) >> INTERRUPT_LCD_STAT_BIT) & 0x1)
-#define ENABLE_TIMER    ((read_memory(REGISTER_IE) >> INTERRUPT_TIMER_BIT)    & 0x1)
-#define ENABLE_SERIAL   ((read_memory(REGISTER_IE) >> INTERRUPT_SERIAL_BIT)   & 0x1)
-#define ENABLE_JOYPAD   ((read_memory(REGISTER_IE) >> INTERRUPT_JOYPAD_BIT)   & 0x1)
-
-#define REQUEST_VBLANK   ((read_memory(REGISTER_IF) >> INTERRUPT_VBLANK_BIT)   & 0x1)
-#define REQUEST_LCD_STAT ((read_memory(REGISTER_IF) >> INTERRUPT_LCD_STAT_BIT) & 0x1)
-#define REQUEST_TIMER    ((read_memory(REGISTER_IF) >> INTERRUPT_TIMER_BIT)    & 0x1)
-#define REQUEST_SERIAL   ((read_memory(REGISTER_IF) >> INTERRUPT_SERIAL_BIT)   & 0x1)
-#define REQUEST_JOYPAD   ((read_memory(REGISTER_IF) >> INTERRUPT_JOYPAD_BIT)   & 0x1)
-
-#define JOYPAD_DOWN_START_BIT 3
-#define JOYPAD_UP_SELECT_BIT  2
-#define JOYPAD_LEFT_B_BIT     1
-#define JOYPAD_RIGHT_A_BIT    0
-
-#define JOYPAD_DOWN_START_MASK (1 << JOYPAD_DOWN_START_MASK)
-#define JOYPAD_UP_SELECT_MASK  (1 << JOYPAD_UP_SELECT_MASK
-#define JOYPAD_LEFT_B_MASK     (1 << JOYPAD_LEFT_B_MASK)
-#define JOYPAD_RIGHT_A_MASK    (1 << JOYPAD_RIGHT_A_MASK)
-
 static void
 add(u8 value)
 {
    // NOTE(law): Compute these values before updating register A for use in the
    // flag calculations.
-   u16 extended_sum = (u16)register_a + (u16)value;
-   u8 half_sum = (register_a & 0xF) + (value & 0xF);
+   u16 extended_sum = (u16)registers.a + (u16)value;
+   u8 half_sum = (registers.a & 0xF) + (value & 0xF);
 
-   register_a = (u8)extended_sum;
+   registers.a = (u8)extended_sum;
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((registers.a == 0) << FLAG_Z_BIT);
 
    // NOTE(law): Always reset the Subtraction flag.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): Set the Half Carry flag if a carry occurs from bit 3 to 4.
-   register_f = (register_f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
+   registers.f = (registers.f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
 
    // NOTE(law): Set the Half Carry flag if a carry occurs from bit 7.
-   register_f = (register_f & ~FLAG_C_MASK) | ((extended_sum > 0xFF) << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | ((extended_sum > 0xFF) << FLAG_C_BIT);
 }
 
 static void
@@ -1587,24 +1594,24 @@ adc(u8 value)
 {
    // NOTE(law): Compute these values before updating register A for use in the
    // flag calculations.
-   u16 extended_sum = (u16)register_a + (u16)value + FLAG_C;
-   u8 half_sum = (register_a & 0xF) + (value & 0xF) + FLAG_C;
+   u16 extended_sum = (u16)registers.a + (u16)value + FLAG_C;
+   u8 half_sum = (registers.a & 0xF) + (value & 0xF) + FLAG_C;
 
-   register_a = (u8)extended_sum;
+   registers.a = (u8)extended_sum;
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((registers.a == 0) << FLAG_Z_BIT);
 
    // NOTE(law): Always reset the Subtraction flag.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): Set the Half Carry flag if a carry occurs from bit 3 to 4.
-   register_f = (register_f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
+   registers.f = (registers.f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
 
    // NOTE(law): Set the Carry flag if adding the full 8 bits of register A and
    // the incoming value would create a sum greater than the maximum byte value
    // 0xFF (assuming the types used avoided an overflow).
-   register_f = (register_f & ~FLAG_C_MASK) | ((extended_sum > 0xFF) << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | ((extended_sum > 0xFF) << FLAG_C_BIT);
 }
 
 static void
@@ -1612,23 +1619,23 @@ sub(u8 value)
 {
    // NOTE(law): Compute these values before updating register A for use in the
    // flag calculations.
-   bool is_negative = (s8)register_a < (s8)value;
-   bool is_half_negative = (s8)(register_a & 0xF) < (s8)(value & 0xF);
+   bool is_negative = (s8)registers.a < (s8)value;
+   bool is_half_negative = (s8)(registers.a & 0xF) < (s8)(value & 0xF);
 
-   register_a -= value;
+   registers.a -= value;
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((registers.a == 0) << FLAG_Z_BIT);
 
    // NOTE(law): Always set the Subtraction flag.
-   register_f |= FLAG_N_MASK;
+   registers.f |= FLAG_N_MASK;
 
    // NOTE(law): Set the Half Carry flag if subractring the low 4 bits of register A
    // and the incoming value sets bit 4 of the resulting sum.
-   register_f = (register_f & ~FLAG_H_MASK) | (is_half_negative << FLAG_H_BIT);
+   registers.f = (registers.f & ~FLAG_H_MASK) | (is_half_negative << FLAG_H_BIT);
 
    // NOTE(law): Set the Carry flag if the result is less than zero.
-   register_f = (register_f & ~FLAG_C_MASK) | (is_negative << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | (is_negative << FLAG_C_BIT);
 }
 
 static void
@@ -1636,98 +1643,98 @@ sbc(u8 value)
 {
    s8 value_and_carry = (s8)value + FLAG_C;
 
-   bool is_negative = (s8)register_a < value_and_carry;
-   bool is_half_negative = (s8)(register_a & 0xF) < (value_and_carry & 0xF);
+   bool is_negative = (s8)registers.a < value_and_carry;
+   bool is_half_negative = (s8)(registers.a & 0xF) < (value_and_carry & 0xF);
 
-   register_a -= (value);
+   registers.a -= (value);
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((registers.a == 0) << FLAG_Z_BIT);
 
    // NOTE(law): Always set the Subtraction flag.
-   register_f |= FLAG_N_MASK;
+   registers.f |= FLAG_N_MASK;
 
    // NOTE(law): Set the Half Carry flag if subractring the low 4 bits of register A
    // and the incoming value sets bit 4 of the resulting sum.
-   register_f = (register_f & ~FLAG_H_MASK) | (is_half_negative << FLAG_H_BIT);
+   registers.f = (registers.f & ~FLAG_H_MASK) | (is_half_negative << FLAG_H_BIT);
 
    // NOTE(law): Set the Carry flag if the result is less than zero.
-   register_f = (register_f & ~FLAG_C_MASK) | (is_negative << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | (is_negative << FLAG_C_BIT);
 }
 
 static void
 xor(u8 value)
 {
-   register_a ^= value;
+   registers.a ^= value;
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((registers.a == 0) << FLAG_Z_BIT);
 
    // NOTE(law): Always reset the Subtraction mask.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): Always reset the Half Carry mask.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): Always reset the Carry mask.
-   register_f &= ~FLAG_C_MASK;
+   registers.f &= ~FLAG_C_MASK;
 }
 
 static void
 or(u8 value)
 {
-   register_a |= value;
+   registers.a |= value;
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((registers.a == 0) << FLAG_Z_BIT);
 
    // NOTE(law): Always reset the Subtraction mask.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): Always reset the Half Carry mask.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): Always reset the Carry mask.
-   register_f &= ~FLAG_C_MASK;
+   registers.f &= ~FLAG_C_MASK;
 }
 
 static void
 and(u8 value)
 {
-   register_a &= value;
+   registers.a &= value;
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((registers.a == 0) << FLAG_Z_BIT);
 
    // NOTE(law): Always reset the Subtraction mask.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): Always set the Half Carry mask.
-   register_f |= FLAG_H_MASK;
+   registers.f |= FLAG_H_MASK;
 
    // NOTE(law): Always reset the Carry mask.
-   register_f &= ~FLAG_C_MASK;
+   registers.f &= ~FLAG_C_MASK;
 }
 
 static void
 cp(u8 value)
 {
    // NOTE(law): If the compared values are equivalent, set the Zero flag.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == value) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((registers.a == value) << FLAG_Z_BIT);
 
    // NOTE(law): Always set the subtraction flag for comparisons.
-   register_f |= FLAG_N_MASK;
+   registers.f |= FLAG_N_MASK;
 
    // NOTE(law): If the result of subtracting the first 4 bits of value from the
    // first 4 bits of A would produce a result that is less than 0, set the
    // Half Carry flag.
-   bool is_half_negative = (s8)(register_a & 0xF) < (s8)(value & 0xF);
-   register_f = (register_f & ~FLAG_H_MASK) | (is_half_negative << FLAG_H_BIT);
+   bool is_half_negative = (s8)(registers.a & 0xF) < (s8)(value & 0xF);
+   registers.f = (registers.f & ~FLAG_H_MASK) | (is_half_negative << FLAG_H_BIT);
 
    // NOTE(law): If the result of subtracting value from A would produce a
    // result that is less than 0, set the Carry flag.
-   bool is_negative = (s8)register_a < (s8)value;
-   register_f = (register_f & ~FLAG_C_MASK) | (is_negative << FLAG_C_BIT);
+   bool is_negative = (s8)registers.a < (s8)value;
+   registers.f = (registers.f & ~FLAG_C_MASK) | (is_negative << FLAG_C_BIT);
 }
 
 static u8
@@ -1740,13 +1747,13 @@ inc(u8 value)
    value += 1;
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
 
    // NOTE(law): The Subtraction flag is always reset.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): Set the Half Carry flag when a carry from bit 3 occurs.
-   register_f = (register_f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
+   registers.f = (registers.f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
 
    // NOTE(law): The Carry flag is not affected.
 
@@ -1763,13 +1770,13 @@ dec(u8 value)
    value -= 1;
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
 
    // NOTE(law): The Subtraction flag is always set.
-   register_f |= FLAG_N_MASK;
+   registers.f |= FLAG_N_MASK;
 
    // NOTE(law): Set the Half Carry flag when a carry from bit 3 occurs.
-   register_f = (register_f & ~FLAG_H_MASK) | (is_half_negative << FLAG_H_BIT);
+   registers.f = (registers.f & ~FLAG_H_MASK) | (is_half_negative << FLAG_H_BIT);
 
    // NOTE(law): The Carry flag is not affected.
 
@@ -1783,18 +1790,18 @@ add16(u16 value)
    u8 half_sum = (REGISTER_HL & 0xF) + (value & 0xF);
 
    u16 sum = REGISTER_HL + value;
-   register_h = (sum >> 8);
-   register_l = (sum & 0xFF);
+   registers.h = (sum >> 8);
+   registers.l = (sum & 0xFF);
 
    // NOTE(law): The Zero flag is not affected.
 
    // NOTE(law): The Subtraction flag is always unset.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): Set the Half Carry flag when a carry from bit 3 occurs.
-   register_f = (register_f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
+   registers.f = (registers.f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
 
-   register_f = (register_f & ~FLAG_C_MASK) | ((extended_sum > 0xFFFF) << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | ((extended_sum > 0xFFFF) << FLAG_C_BIT);
 }
 
 static void
@@ -1841,65 +1848,65 @@ dec16(u16 *value)
 static void
 jp(bool should_jump)
 {
-   u8 address_low  = read_memory(register_pc++);
-   u8 address_high = read_memory(register_pc++);
+   u8 address_low  = read_memory(registers.pc++);
+   u8 address_high = read_memory(registers.pc++);
 
    if(should_jump)
    {
       u16 address = ((u16)address_high << 8) | (u16)address_low;
-      register_pc = address;
+      registers.pc = address;
    }
 }
 
 static void
 jr(bool should_jump)
 {
-   s8 offset = read_memory(register_pc++);
+   s8 offset = read_memory(registers.pc++);
 
    if(should_jump)
    {
-      s16 address = (s16)register_pc + (s16)offset;
-      register_pc = (u16)address;
+      s16 address = (s16)registers.pc + (s16)offset;
+      registers.pc = (u16)address;
    }
 }
 
 static void
 call(bool should_jump)
 {
-   u8 address_low  = read_memory(register_pc++);
-   u8 address_high = read_memory(register_pc++);
+   u8 address_low  = read_memory(registers.pc++);
+   u8 address_high = read_memory(registers.pc++);
 
    if(should_jump)
    {
-      write_memory(--register_sp, register_pc >> 8);
-      write_memory(--register_sp, register_pc & 0xFF);
+      write_memory(--registers.sp, registers.pc >> 8);
+      write_memory(--registers.sp, registers.pc & 0xFF);
 
       u16 address = ((u16)address_high << 8) | (u16)address_low;
-      register_pc = address;
+      registers.pc = address;
    }
 }
 
 static void
 ret(bool should_jump)
 {
-   u8 address_low  = read_memory(register_sp++);
-   u8 address_high = read_memory(register_sp++);
+   u8 address_low  = read_memory(registers.sp++);
+   u8 address_high = read_memory(registers.sp++);
 
    if(should_jump)
    {
       u16 address = ((u16)address_high << 8) | (u16)address_low;
-      register_pc = address;
+      registers.pc = address;
    }
 }
 
 static void
 rst(u8 address_low)
 {
-   write_memory(--register_sp, register_pc >> 8);
-   write_memory(--register_sp, register_pc & 0xFF);
+   write_memory(--registers.sp, registers.pc >> 8);
+   write_memory(--registers.sp, registers.pc & 0xFF);
 
    u16 address = (u16)address_low;
-   register_pc = address;
+   registers.pc = address;
 }
 
 static u8
@@ -1917,16 +1924,16 @@ rl(u8 value)
    value |= (previous_c << 0);
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
 
    // NOTE(law): The Half Carry flag is always reset.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): The Subtraction flag is always reset.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): Set the Carry flag to the pre-shift value of bit 7.
-   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
 
    return(value);
 }
@@ -1936,26 +1943,26 @@ rla()
 {
    // NOTE(law): Rotate Left Accumulator
 
-   u8 previous_bit7 = (register_a >> 7);
+   u8 previous_bit7 = (registers.a >> 7);
    u8 previous_c = FLAG_C;
 
-   register_a <<= 1;
+   registers.a <<= 1;
 
    // NOTE(law): Set bit 0 of value to the previous value of the Carry flag (a
    // value of zero should have already been shifted into position zero).
-   register_a |= (previous_c << 0);
+   registers.a |= (previous_c << 0);
 
    // NOTE(law): The Zero flag is always reset.
-   register_f &= ~FLAG_Z_MASK;
+   registers.f &= ~FLAG_Z_MASK;
 
    // NOTE(law): The Subtraction flag is always reset.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): The Half Carry flag is always reset.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): Set the Carry flag to the pre-shift value of bit 7.
-   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
 }
 
 static u8
@@ -1972,16 +1979,16 @@ rlc(u8 value)
    value |= (previous_bit7 << 0);
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
 
    // NOTE(law): The Subtraction flag is always reset.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): The Half Carry flag is always reset.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): Set the Carry flag to the pre-shift value of bit 7.
-   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
 
    return(value);
 }
@@ -1991,25 +1998,25 @@ rlca()
 {
    // NOTE(law): Rotate Left Circular Accumulator
 
-   u8 previous_bit7 = (register_a >> 7);
+   u8 previous_bit7 = (registers.a >> 7);
 
-   register_a <<= 1;
+   registers.a <<= 1;
 
    // NOTE(law): Set bit 0 to the pre-shift value of bit 7 (a value of zero
    // should have already been shifted into position zero).
-   register_a |= (previous_bit7 << 0);
+   registers.a |= (previous_bit7 << 0);
 
    // NOTE(law): The Zero flag is always reset.
-   register_f &= ~FLAG_Z_MASK;
+   registers.f &= ~FLAG_Z_MASK;
 
    // NOTE(law): The Half Carry flag is always reset.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): The Subtraction flag is always reset.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): Set the Carry flag to the pre-shift value of bit 7.
-   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
 }
 
 static u8
@@ -2027,16 +2034,16 @@ rr(u8 value)
    value |= (previous_c << 7);
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
 
    // NOTE(law): The Half Carry flag is always reset.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): The Subtraction flag is always reset.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): Set the Carry flag to the pre-shift value of bit 0.
-   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
 
    return(value);
 }
@@ -2046,25 +2053,25 @@ rra()
 {
    // NOTE(law): Rotate Right Accumulator
 
-   u8 previous_bit0 = (register_a & 0x01);
+   u8 previous_bit0 = (registers.a & 0x01);
    u8 previous_c = FLAG_C;
 
-   register_a >>= 1;
+   registers.a >>= 1;
 
    // NOTE(law): Set bit 7 of value to the previous value of the Carry flag (a
    // value of zero should have already been shifted into position seven).
-   register_a |= (previous_c << 7);
+   registers.a |= (previous_c << 7);
 
    // NOTE(law): The Zero flag is not affected.
 
    // NOTE(law): The Subtraction flag is always reset.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): The Half Carry flag is always reset.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): Set the Carry flag to the pre-shift value of bit 0.
-   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
 }
 
 static u8
@@ -2081,16 +2088,16 @@ rrc(u8 value)
    value |= (previous_bit0 << 7);
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
 
    // NOTE(law): The Half Carry flag is always reset.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): The Subtraction flag is always reset.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): Set the Carry flag to the pre-shift value of bit 0.
-   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
 
    return(value);
 }
@@ -2100,25 +2107,25 @@ rrca()
 {
    // NOTE(law): Rotate Right Circular Accumulator
 
-   u8 previous_bit0 = (register_a & 0x01);
+   u8 previous_bit0 = (registers.a & 0x01);
 
-   register_a >>= 1;
+   registers.a >>= 1;
 
    // NOTE(law): Set bit 7 to the pre-shift value of bit 0 (a value of zero
    // should have already been shifted into position seven).
-   register_a |= (previous_bit0 << 7);
+   registers.a |= (previous_bit0 << 7);
 
    // NOTE(law): The Zero flag is always reset.
-   register_f &= ~FLAG_Z_MASK;
+   registers.f &= ~FLAG_Z_MASK;
 
    // NOTE(law): The Subtraction flag is always reset.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): The Half Carry flag is always reset.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): Set the Carry flag to the pre-shift value of bit 0.
-   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
 }
 
 static void
@@ -2128,13 +2135,13 @@ bit(u32 bit_index, u8 value)
    // of the value. If the bit is zero, set the flag, else reset it.
 
    u8 bit_value = ((value >> bit_index) & 0x01);
-   register_f = (register_f & ~(FLAG_Z_MASK)) | ((bit_value == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~(FLAG_Z_MASK)) | ((bit_value == 0) << FLAG_Z_BIT);
 
    // NOTE(law): The Subtraction flag is always reset.
-   register_f &= ~FLAG_N_MASK;
+   registers.f &= ~FLAG_N_MASK;
 
    // NOTE(law): The Half Carry flag is always set.
-   register_f |= FLAG_H_MASK;
+   registers.f |= FLAG_H_MASK;
 
    // NOTE(law): The Carry flag is not affected.
 }
@@ -2163,16 +2170,16 @@ sla(u8 value)
    value <<= 1;
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
 
    // NOTE(law): The Subtraction flag is always reset.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): The Half Carry flag is always reset.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): Set the Carry flag to the pre-shift value of bit 7.
-   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
 
    return(value);
 }
@@ -2189,16 +2196,16 @@ sra(u8 value)
    value = ((s16)value >> 1);
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
 
    // NOTE(law): The Subtraction flag is always reset.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): The Half Carry flag is always reset.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): Set the Carry flag to the pre-shift value of bit 0.
-   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
 
    return(value);
 }
@@ -2225,16 +2232,16 @@ srl(u8 value)
    value >>= 1;
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
-   register_f = (register_f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
+   registers.f = (registers.f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
 
    // NOTE(law): The Subtraction flag is always reset.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): The Half Carry flag is always reset.
-   register_f &= ~FLAG_H_MASK;
+   registers.f &= ~FLAG_H_MASK;
 
    // NOTE(law): Set the Carry flag to the pre-shift value of bit 0.
-   register_f = (register_f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
+   registers.f = (registers.f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
 
    return(value);
 }
@@ -2384,306 +2391,306 @@ struct opcode_cycle_count cbprefix_cycle_counts[] =
 static u32
 fetch_and_execute()
 {
-   u8 opcode = read_memory(register_pc++);
+   u8 opcode = read_memory(registers.pc++);
    bool condition_succeeded = true;
 
    bool prefix_opcode = (opcode == 0xCB);
    if(prefix_opcode)
    {
       // NOTE(law): Parse prefix instructions.
-      opcode = read_memory(register_pc++);
+      opcode = read_memory(registers.pc++);
       switch(opcode)
       {
          // NOTE(law): Rotate and Shift instructions
-         case 0x00: {register_b = rlc(register_b);} break;
-         case 0x01: {register_c = rlc(register_c);} break;
-         case 0x02: {register_d = rlc(register_d);} break;
-         case 0x03: {register_e = rlc(register_e);} break;
-         case 0x04: {register_h = rlc(register_h);} break;
-         case 0x05: {register_l = rlc(register_l);} break;
+         case 0x00: {registers.b = rlc(registers.b);} break;
+         case 0x01: {registers.c = rlc(registers.c);} break;
+         case 0x02: {registers.d = rlc(registers.d);} break;
+         case 0x03: {registers.e = rlc(registers.e);} break;
+         case 0x04: {registers.h = rlc(registers.h);} break;
+         case 0x05: {registers.l = rlc(registers.l);} break;
          case 0x06: {write_memory(REGISTER_HL, rlc(read_memory(REGISTER_HL)));} break;
-         case 0x07: {register_a = rlc(register_a);} break;
+         case 0x07: {registers.a = rlc(registers.a);} break;
 
-         case 0x08: {register_b = rrc(register_b);} break;
-         case 0x09: {register_c = rrc(register_c);} break;
-         case 0x0A: {register_d = rrc(register_d);} break;
-         case 0x0B: {register_e = rrc(register_e);} break;
-         case 0x0C: {register_h = rrc(register_h);} break;
-         case 0x0D: {register_l = rrc(register_l);} break;
+         case 0x08: {registers.b = rrc(registers.b);} break;
+         case 0x09: {registers.c = rrc(registers.c);} break;
+         case 0x0A: {registers.d = rrc(registers.d);} break;
+         case 0x0B: {registers.e = rrc(registers.e);} break;
+         case 0x0C: {registers.h = rrc(registers.h);} break;
+         case 0x0D: {registers.l = rrc(registers.l);} break;
          case 0x0E: {write_memory(REGISTER_HL, rrc(read_memory(REGISTER_HL)));} break;
-         case 0x0F: {register_a = rrc(register_a);} break;
+         case 0x0F: {registers.a = rrc(registers.a);} break;
 
-         case 0x10: {register_b = rl(register_b);} break;
-         case 0x11: {register_c = rl(register_c);} break;
-         case 0x12: {register_d = rl(register_d);} break;
-         case 0x13: {register_e = rl(register_e);} break;
-         case 0x14: {register_h = rl(register_h);} break;
-         case 0x15: {register_l = rl(register_l);} break;
+         case 0x10: {registers.b = rl(registers.b);} break;
+         case 0x11: {registers.c = rl(registers.c);} break;
+         case 0x12: {registers.d = rl(registers.d);} break;
+         case 0x13: {registers.e = rl(registers.e);} break;
+         case 0x14: {registers.h = rl(registers.h);} break;
+         case 0x15: {registers.l = rl(registers.l);} break;
          case 0x16: {write_memory(REGISTER_HL, rl(read_memory(REGISTER_HL)));} break;
-         case 0x17: {register_a = rl(register_a);} break;
+         case 0x17: {registers.a = rl(registers.a);} break;
 
-         case 0x18: {register_b = rr(register_b);} break;
-         case 0x19: {register_c = rr(register_c);} break;
-         case 0x1A: {register_d = rr(register_d);} break;
-         case 0x1B: {register_e = rr(register_e);} break;
-         case 0x1C: {register_h = rr(register_h);} break;
-         case 0x1D: {register_l = rr(register_l);} break;
+         case 0x18: {registers.b = rr(registers.b);} break;
+         case 0x19: {registers.c = rr(registers.c);} break;
+         case 0x1A: {registers.d = rr(registers.d);} break;
+         case 0x1B: {registers.e = rr(registers.e);} break;
+         case 0x1C: {registers.h = rr(registers.h);} break;
+         case 0x1D: {registers.l = rr(registers.l);} break;
          case 0x1E: {write_memory(REGISTER_HL, rr(read_memory(REGISTER_HL)));} break;
-         case 0x1F: {register_a = rr(register_a);} break;
+         case 0x1F: {registers.a = rr(registers.a);} break;
 
-         case 0x20: {register_b = sla(register_b);} break;
-         case 0x21: {register_c = sla(register_c);} break;
-         case 0x22: {register_d = sla(register_d);} break;
-         case 0x23: {register_e = sla(register_e);} break;
-         case 0x24: {register_h = sla(register_h);} break;
-         case 0x25: {register_l = sla(register_l);} break;
+         case 0x20: {registers.b = sla(registers.b);} break;
+         case 0x21: {registers.c = sla(registers.c);} break;
+         case 0x22: {registers.d = sla(registers.d);} break;
+         case 0x23: {registers.e = sla(registers.e);} break;
+         case 0x24: {registers.h = sla(registers.h);} break;
+         case 0x25: {registers.l = sla(registers.l);} break;
          case 0x26: {write_memory(REGISTER_HL, sla(read_memory(REGISTER_HL)));} break;
-         case 0x27: {register_a = sla(register_a);} break;
+         case 0x27: {registers.a = sla(registers.a);} break;
 
-         case 0x28: {register_b = sra(register_b);} break;
-         case 0x29: {register_c = sra(register_c);} break;
-         case 0x2A: {register_d = sra(register_d);} break;
-         case 0x2B: {register_e = sra(register_e);} break;
-         case 0x2C: {register_h = sra(register_h);} break;
-         case 0x2D: {register_l = sra(register_l);} break;
+         case 0x28: {registers.b = sra(registers.b);} break;
+         case 0x29: {registers.c = sra(registers.c);} break;
+         case 0x2A: {registers.d = sra(registers.d);} break;
+         case 0x2B: {registers.e = sra(registers.e);} break;
+         case 0x2C: {registers.h = sra(registers.h);} break;
+         case 0x2D: {registers.l = sra(registers.l);} break;
          case 0x2E: {write_memory(REGISTER_HL, sra(read_memory(REGISTER_HL)));} break;
-         case 0x2F: {register_a = sra(register_a);} break;
+         case 0x2F: {registers.a = sra(registers.a);} break;
 
-         case 0x30: {register_b = swap(register_b);} break;
-         case 0x31: {register_c = swap(register_c);} break;
-         case 0x32: {register_d = swap(register_d);} break;
-         case 0x33: {register_e = swap(register_e);} break;
-         case 0x34: {register_h = swap(register_h);} break;
-         case 0x35: {register_l = swap(register_l);} break;
+         case 0x30: {registers.b = swap(registers.b);} break;
+         case 0x31: {registers.c = swap(registers.c);} break;
+         case 0x32: {registers.d = swap(registers.d);} break;
+         case 0x33: {registers.e = swap(registers.e);} break;
+         case 0x34: {registers.h = swap(registers.h);} break;
+         case 0x35: {registers.l = swap(registers.l);} break;
          case 0x36: {write_memory(REGISTER_HL, swap(read_memory(REGISTER_HL)));} break;
-         case 0x37: {register_a = swap(register_a);} break;
+         case 0x37: {registers.a = swap(registers.a);} break;
 
-         case 0x38: {register_b = srl(register_b);} break;
-         case 0x39: {register_c = srl(register_c);} break;
-         case 0x3A: {register_d = srl(register_d);} break;
-         case 0x3B: {register_e = srl(register_e);} break;
-         case 0x3C: {register_h = srl(register_h);} break;
-         case 0x3D: {register_l = srl(register_l);} break;
+         case 0x38: {registers.b = srl(registers.b);} break;
+         case 0x39: {registers.c = srl(registers.c);} break;
+         case 0x3A: {registers.d = srl(registers.d);} break;
+         case 0x3B: {registers.e = srl(registers.e);} break;
+         case 0x3C: {registers.h = srl(registers.h);} break;
+         case 0x3D: {registers.l = srl(registers.l);} break;
          case 0x3E: {write_memory(REGISTER_HL, srl(read_memory(REGISTER_HL)));} break;
-         case 0x3F: {register_a = srl(register_a);} break;
+         case 0x3F: {registers.a = srl(registers.a);} break;
 
 
          // NOTE(law): Single-bit Operation instructions
-         case 0x40: bit(0, register_b); break;
-         case 0x41: bit(0, register_c); break;
-         case 0x42: bit(0, register_d); break;
-         case 0x43: bit(0, register_e); break;
-         case 0x44: bit(0, register_h); break;
-         case 0x45: bit(0, register_l); break;
+         case 0x40: bit(0, registers.b); break;
+         case 0x41: bit(0, registers.c); break;
+         case 0x42: bit(0, registers.d); break;
+         case 0x43: bit(0, registers.e); break;
+         case 0x44: bit(0, registers.h); break;
+         case 0x45: bit(0, registers.l); break;
          case 0x46: bit(0, read_memory(REGISTER_HL)); break;
-         case 0x47: bit(0, register_a); break;
+         case 0x47: bit(0, registers.a); break;
 
-         case 0x48: bit(1, register_b); break;
-         case 0x49: bit(1, register_c); break;
-         case 0x4A: bit(1, register_d); break;
-         case 0x4B: bit(1, register_e); break;
-         case 0x4C: bit(1, register_h); break;
-         case 0x4D: bit(1, register_l); break;
+         case 0x48: bit(1, registers.b); break;
+         case 0x49: bit(1, registers.c); break;
+         case 0x4A: bit(1, registers.d); break;
+         case 0x4B: bit(1, registers.e); break;
+         case 0x4C: bit(1, registers.h); break;
+         case 0x4D: bit(1, registers.l); break;
          case 0x4E: bit(1, read_memory(REGISTER_HL)); break;
-         case 0x4F: bit(1, register_a); break;
+         case 0x4F: bit(1, registers.a); break;
 
-         case 0x50: bit(2, register_b); break;
-         case 0x51: bit(2, register_c); break;
-         case 0x52: bit(2, register_d); break;
-         case 0x53: bit(2, register_e); break;
-         case 0x54: bit(2, register_h); break;
-         case 0x55: bit(2, register_l); break;
+         case 0x50: bit(2, registers.b); break;
+         case 0x51: bit(2, registers.c); break;
+         case 0x52: bit(2, registers.d); break;
+         case 0x53: bit(2, registers.e); break;
+         case 0x54: bit(2, registers.h); break;
+         case 0x55: bit(2, registers.l); break;
          case 0x56: bit(2, read_memory(REGISTER_HL)); break;
-         case 0x57: bit(2, register_a); break;
+         case 0x57: bit(2, registers.a); break;
 
-         case 0x58: bit(3, register_b); break;
-         case 0x59: bit(3, register_c); break;
-         case 0x5A: bit(3, register_d); break;
-         case 0x5B: bit(3, register_e); break;
-         case 0x5C: bit(3, register_h); break;
-         case 0x5D: bit(3, register_l); break;
+         case 0x58: bit(3, registers.b); break;
+         case 0x59: bit(3, registers.c); break;
+         case 0x5A: bit(3, registers.d); break;
+         case 0x5B: bit(3, registers.e); break;
+         case 0x5C: bit(3, registers.h); break;
+         case 0x5D: bit(3, registers.l); break;
          case 0x5E: bit(3, read_memory(REGISTER_HL)); break;
-         case 0x5F: bit(3, register_a); break;
+         case 0x5F: bit(3, registers.a); break;
 
-         case 0x60: bit(4, register_b); break;
-         case 0x61: bit(4, register_c); break;
-         case 0x62: bit(4, register_d); break;
-         case 0x63: bit(4, register_e); break;
-         case 0x64: bit(4, register_h); break;
-         case 0x65: bit(4, register_l); break;
+         case 0x60: bit(4, registers.b); break;
+         case 0x61: bit(4, registers.c); break;
+         case 0x62: bit(4, registers.d); break;
+         case 0x63: bit(4, registers.e); break;
+         case 0x64: bit(4, registers.h); break;
+         case 0x65: bit(4, registers.l); break;
          case 0x66: bit(4, read_memory(REGISTER_HL)); break;
-         case 0x67: bit(4, register_a); break;
+         case 0x67: bit(4, registers.a); break;
 
-         case 0x68: bit(5, register_b); break;
-         case 0x69: bit(5, register_c); break;
-         case 0x6A: bit(5, register_d); break;
-         case 0x6B: bit(5, register_e); break;
-         case 0x6C: bit(5, register_h); break;
-         case 0x6D: bit(5, register_l); break;
+         case 0x68: bit(5, registers.b); break;
+         case 0x69: bit(5, registers.c); break;
+         case 0x6A: bit(5, registers.d); break;
+         case 0x6B: bit(5, registers.e); break;
+         case 0x6C: bit(5, registers.h); break;
+         case 0x6D: bit(5, registers.l); break;
          case 0x6E: bit(5, read_memory(REGISTER_HL)); break;
-         case 0x6F: bit(5, register_a); break;
+         case 0x6F: bit(5, registers.a); break;
 
-         case 0x70: bit(6, register_b); break;
-         case 0x71: bit(6, register_c); break;
-         case 0x72: bit(6, register_d); break;
-         case 0x73: bit(6, register_e); break;
-         case 0x74: bit(6, register_h); break;
-         case 0x75: bit(6, register_l); break;
+         case 0x70: bit(6, registers.b); break;
+         case 0x71: bit(6, registers.c); break;
+         case 0x72: bit(6, registers.d); break;
+         case 0x73: bit(6, registers.e); break;
+         case 0x74: bit(6, registers.h); break;
+         case 0x75: bit(6, registers.l); break;
          case 0x76: bit(6, read_memory(REGISTER_HL)); break;
-         case 0x77: bit(6, register_a); break;
+         case 0x77: bit(6, registers.a); break;
 
-         case 0x78: bit(7, register_b); break;
-         case 0x79: bit(7, register_c); break;
-         case 0x7A: bit(7, register_d); break;
-         case 0x7B: bit(7, register_e); break;
-         case 0x7C: bit(7, register_h); break;
-         case 0x7D: bit(7, register_l); break;
+         case 0x78: bit(7, registers.b); break;
+         case 0x79: bit(7, registers.c); break;
+         case 0x7A: bit(7, registers.d); break;
+         case 0x7B: bit(7, registers.e); break;
+         case 0x7C: bit(7, registers.h); break;
+         case 0x7D: bit(7, registers.l); break;
          case 0x7E: bit(7, read_memory(REGISTER_HL)); break;
-         case 0x7F: bit(7, register_a); break;
+         case 0x7F: bit(7, registers.a); break;
 
-         case 0x80: {register_b = res(0, register_b);} break;
-         case 0x81: {register_c = res(0, register_c);} break;
-         case 0x82: {register_d = res(0, register_d);} break;
-         case 0x83: {register_e = res(0, register_e);} break;
-         case 0x84: {register_h = res(0, register_h);} break;
-         case 0x85: {register_l = res(0, register_l);} break;
+         case 0x80: {registers.b = res(0, registers.b);} break;
+         case 0x81: {registers.c = res(0, registers.c);} break;
+         case 0x82: {registers.d = res(0, registers.d);} break;
+         case 0x83: {registers.e = res(0, registers.e);} break;
+         case 0x84: {registers.h = res(0, registers.h);} break;
+         case 0x85: {registers.l = res(0, registers.l);} break;
          case 0x86: {write_memory(REGISTER_HL, res(0, read_memory(REGISTER_HL)));} break;
-         case 0x87: {register_a = res(0, register_a);} break;
+         case 0x87: {registers.a = res(0, registers.a);} break;
 
-         case 0x88: {register_b = res(1, register_b);} break;
-         case 0x89: {register_c = res(1, register_c);} break;
-         case 0x8A: {register_d = res(1, register_d);} break;
-         case 0x8B: {register_e = res(1, register_e);} break;
-         case 0x8C: {register_h = res(1, register_h);} break;
-         case 0x8D: {register_l = res(1, register_l);} break;
+         case 0x88: {registers.b = res(1, registers.b);} break;
+         case 0x89: {registers.c = res(1, registers.c);} break;
+         case 0x8A: {registers.d = res(1, registers.d);} break;
+         case 0x8B: {registers.e = res(1, registers.e);} break;
+         case 0x8C: {registers.h = res(1, registers.h);} break;
+         case 0x8D: {registers.l = res(1, registers.l);} break;
          case 0x8E: {write_memory(REGISTER_HL, res(1, read_memory(REGISTER_HL)));} break;
-         case 0x8F: {register_a = res(1, register_a);} break;
+         case 0x8F: {registers.a = res(1, registers.a);} break;
 
-         case 0x90: {register_b = res(2, register_b);} break;
-         case 0x91: {register_c = res(2, register_c);} break;
-         case 0x92: {register_d = res(2, register_d);} break;
-         case 0x93: {register_e = res(2, register_e);} break;
-         case 0x94: {register_h = res(2, register_h);} break;
-         case 0x95: {register_l = res(2, register_l);} break;
+         case 0x90: {registers.b = res(2, registers.b);} break;
+         case 0x91: {registers.c = res(2, registers.c);} break;
+         case 0x92: {registers.d = res(2, registers.d);} break;
+         case 0x93: {registers.e = res(2, registers.e);} break;
+         case 0x94: {registers.h = res(2, registers.h);} break;
+         case 0x95: {registers.l = res(2, registers.l);} break;
          case 0x96: {write_memory(REGISTER_HL, res(2, read_memory(REGISTER_HL)));} break;
-         case 0x97: {register_a = res(2, register_a);} break;
+         case 0x97: {registers.a = res(2, registers.a);} break;
 
-         case 0x98: {register_b = res(3, register_b);} break;
-         case 0x99: {register_c = res(3, register_c);} break;
-         case 0x9A: {register_d = res(3, register_d);} break;
-         case 0x9B: {register_e = res(3, register_e);} break;
-         case 0x9C: {register_h = res(3, register_h);} break;
-         case 0x9D: {register_l = res(3, register_l);} break;
+         case 0x98: {registers.b = res(3, registers.b);} break;
+         case 0x99: {registers.c = res(3, registers.c);} break;
+         case 0x9A: {registers.d = res(3, registers.d);} break;
+         case 0x9B: {registers.e = res(3, registers.e);} break;
+         case 0x9C: {registers.h = res(3, registers.h);} break;
+         case 0x9D: {registers.l = res(3, registers.l);} break;
          case 0x9E: {write_memory(REGISTER_HL, res(3, read_memory(REGISTER_HL)));} break;
-         case 0x9F: {register_a = res(3, register_a);} break;
+         case 0x9F: {registers.a = res(3, registers.a);} break;
 
-         case 0xA0: {register_b = res(4, register_b);} break;
-         case 0xA1: {register_c = res(4, register_c);} break;
-         case 0xA2: {register_d = res(4, register_d);} break;
-         case 0xA3: {register_e = res(4, register_e);} break;
-         case 0xA4: {register_h = res(4, register_h);} break;
-         case 0xA5: {register_l = res(4, register_l);} break;
+         case 0xA0: {registers.b = res(4, registers.b);} break;
+         case 0xA1: {registers.c = res(4, registers.c);} break;
+         case 0xA2: {registers.d = res(4, registers.d);} break;
+         case 0xA3: {registers.e = res(4, registers.e);} break;
+         case 0xA4: {registers.h = res(4, registers.h);} break;
+         case 0xA5: {registers.l = res(4, registers.l);} break;
          case 0xA6: {write_memory(REGISTER_HL, res(4, read_memory(REGISTER_HL)));} break;
-         case 0xA7: {register_a = res(4, register_a);} break;
+         case 0xA7: {registers.a = res(4, registers.a);} break;
 
-         case 0xA8: {register_b = res(5, register_b);} break;
-         case 0xA9: {register_c = res(5, register_c);} break;
-         case 0xAA: {register_d = res(5, register_d);} break;
-         case 0xAB: {register_e = res(5, register_e);} break;
-         case 0xAC: {register_h = res(5, register_h);} break;
-         case 0xAD: {register_l = res(5, register_l);} break;
+         case 0xA8: {registers.b = res(5, registers.b);} break;
+         case 0xA9: {registers.c = res(5, registers.c);} break;
+         case 0xAA: {registers.d = res(5, registers.d);} break;
+         case 0xAB: {registers.e = res(5, registers.e);} break;
+         case 0xAC: {registers.h = res(5, registers.h);} break;
+         case 0xAD: {registers.l = res(5, registers.l);} break;
          case 0xAE: {write_memory(REGISTER_HL, res(5, read_memory(REGISTER_HL)));} break;
-         case 0xAF: {register_a = res(5, register_a);} break;
+         case 0xAF: {registers.a = res(5, registers.a);} break;
 
-         case 0xB0: {register_b = res(6, register_b);} break;
-         case 0xB1: {register_c = res(6, register_c);} break;
-         case 0xB2: {register_d = res(6, register_d);} break;
-         case 0xB3: {register_e = res(6, register_e);} break;
-         case 0xB4: {register_h = res(6, register_h);} break;
-         case 0xB5: {register_l = res(6, register_l);} break;
+         case 0xB0: {registers.b = res(6, registers.b);} break;
+         case 0xB1: {registers.c = res(6, registers.c);} break;
+         case 0xB2: {registers.d = res(6, registers.d);} break;
+         case 0xB3: {registers.e = res(6, registers.e);} break;
+         case 0xB4: {registers.h = res(6, registers.h);} break;
+         case 0xB5: {registers.l = res(6, registers.l);} break;
          case 0xB6: {write_memory(REGISTER_HL, res(6, read_memory(REGISTER_HL)));} break;
-         case 0xB7: {register_a = res(6, register_a);} break;
+         case 0xB7: {registers.a = res(6, registers.a);} break;
 
-         case 0xB8: {register_b = res(7, register_b);} break;
-         case 0xB9: {register_c = res(7, register_c);} break;
-         case 0xBA: {register_d = res(7, register_d);} break;
-         case 0xBB: {register_e = res(7, register_e);} break;
-         case 0xBC: {register_h = res(7, register_h);} break;
-         case 0xBD: {register_l = res(7, register_l);} break;
+         case 0xB8: {registers.b = res(7, registers.b);} break;
+         case 0xB9: {registers.c = res(7, registers.c);} break;
+         case 0xBA: {registers.d = res(7, registers.d);} break;
+         case 0xBB: {registers.e = res(7, registers.e);} break;
+         case 0xBC: {registers.h = res(7, registers.h);} break;
+         case 0xBD: {registers.l = res(7, registers.l);} break;
          case 0xBE: {write_memory(REGISTER_HL, res(7, read_memory(REGISTER_HL)));} break;
-         case 0xBF: {register_a = res(7, register_a);} break;
+         case 0xBF: {registers.a = res(7, registers.a);} break;
 
-         case 0xC0: {register_b = res(0, register_b);} break;
-         case 0xC1: {register_c = set(0, register_c);} break;
-         case 0xC2: {register_d = set(0, register_d);} break;
-         case 0xC3: {register_e = set(0, register_e);} break;
-         case 0xC4: {register_h = set(0, register_h);} break;
-         case 0xC5: {register_l = set(0, register_l);} break;
+         case 0xC0: {registers.b = res(0, registers.b);} break;
+         case 0xC1: {registers.c = set(0, registers.c);} break;
+         case 0xC2: {registers.d = set(0, registers.d);} break;
+         case 0xC3: {registers.e = set(0, registers.e);} break;
+         case 0xC4: {registers.h = set(0, registers.h);} break;
+         case 0xC5: {registers.l = set(0, registers.l);} break;
          case 0xC6: {write_memory(REGISTER_HL, set(0, read_memory(REGISTER_HL)));} break;
-         case 0xC7: {register_a = set(0, register_a);} break;
+         case 0xC7: {registers.a = set(0, registers.a);} break;
 
-         case 0xC8: {register_b = set(1, register_b);} break;
-         case 0xC9: {register_c = set(1, register_c);} break;
-         case 0xCA: {register_d = set(1, register_d);} break;
-         case 0xCB: {register_e = set(1, register_e);} break;
-         case 0xCC: {register_h = set(1, register_h);} break;
-         case 0xCD: {register_l = set(1, register_l);} break;
+         case 0xC8: {registers.b = set(1, registers.b);} break;
+         case 0xC9: {registers.c = set(1, registers.c);} break;
+         case 0xCA: {registers.d = set(1, registers.d);} break;
+         case 0xCB: {registers.e = set(1, registers.e);} break;
+         case 0xCC: {registers.h = set(1, registers.h);} break;
+         case 0xCD: {registers.l = set(1, registers.l);} break;
          case 0xCE: {write_memory(REGISTER_HL, set(1, read_memory(REGISTER_HL)));} break;
-         case 0xCF: {register_a = set(1, register_a);} break;
+         case 0xCF: {registers.a = set(1, registers.a);} break;
 
-         case 0xD0: {register_b = set(2, register_b);} break;
-         case 0xD1: {register_c = set(2, register_c);} break;
-         case 0xD2: {register_d = set(2, register_d);} break;
-         case 0xD3: {register_e = set(2, register_e);} break;
-         case 0xD4: {register_h = set(2, register_h);} break;
-         case 0xD5: {register_l = set(2, register_l);} break;
+         case 0xD0: {registers.b = set(2, registers.b);} break;
+         case 0xD1: {registers.c = set(2, registers.c);} break;
+         case 0xD2: {registers.d = set(2, registers.d);} break;
+         case 0xD3: {registers.e = set(2, registers.e);} break;
+         case 0xD4: {registers.h = set(2, registers.h);} break;
+         case 0xD5: {registers.l = set(2, registers.l);} break;
          case 0xD6: {write_memory(REGISTER_HL, set(2, read_memory(REGISTER_HL)));} break;
-         case 0xD7: {register_a = set(2, register_a);} break;
+         case 0xD7: {registers.a = set(2, registers.a);} break;
 
-         case 0xD8: {register_b = set(3, register_b);} break;
-         case 0xD9: {register_c = set(3, register_c);} break;
-         case 0xDA: {register_d = set(3, register_d);} break;
-         case 0xDB: {register_e = set(3, register_e);} break;
-         case 0xDC: {register_h = set(3, register_h);} break;
-         case 0xDD: {register_l = set(3, register_l);} break;
+         case 0xD8: {registers.b = set(3, registers.b);} break;
+         case 0xD9: {registers.c = set(3, registers.c);} break;
+         case 0xDA: {registers.d = set(3, registers.d);} break;
+         case 0xDB: {registers.e = set(3, registers.e);} break;
+         case 0xDC: {registers.h = set(3, registers.h);} break;
+         case 0xDD: {registers.l = set(3, registers.l);} break;
          case 0xDE: {write_memory(REGISTER_HL, set(3, read_memory(REGISTER_HL)));} break;
-         case 0xDF: {register_a = set(3, register_a);} break;
+         case 0xDF: {registers.a = set(3, registers.a);} break;
 
-         case 0xE0: {register_b = set(4, register_b);} break;
-         case 0xE1: {register_c = set(4, register_c);} break;
-         case 0xE2: {register_d = set(4, register_d);} break;
-         case 0xE3: {register_e = set(4, register_e);} break;
-         case 0xE4: {register_h = set(4, register_h);} break;
-         case 0xE5: {register_l = set(4, register_l);} break;
+         case 0xE0: {registers.b = set(4, registers.b);} break;
+         case 0xE1: {registers.c = set(4, registers.c);} break;
+         case 0xE2: {registers.d = set(4, registers.d);} break;
+         case 0xE3: {registers.e = set(4, registers.e);} break;
+         case 0xE4: {registers.h = set(4, registers.h);} break;
+         case 0xE5: {registers.l = set(4, registers.l);} break;
          case 0xE6: {write_memory(REGISTER_HL, set(4, read_memory(REGISTER_HL)));} break;
-         case 0xE7: {register_a = set(4, register_a);} break;
+         case 0xE7: {registers.a = set(4, registers.a);} break;
 
-         case 0xE8: {register_b = set(5, register_b);} break;
-         case 0xE9: {register_c = set(5, register_c);} break;
-         case 0xEA: {register_d = set(5, register_d);} break;
-         case 0xEB: {register_e = set(5, register_e);} break;
-         case 0xEC: {register_h = set(5, register_h);} break;
-         case 0xED: {register_l = set(5, register_l);} break;
+         case 0xE8: {registers.b = set(5, registers.b);} break;
+         case 0xE9: {registers.c = set(5, registers.c);} break;
+         case 0xEA: {registers.d = set(5, registers.d);} break;
+         case 0xEB: {registers.e = set(5, registers.e);} break;
+         case 0xEC: {registers.h = set(5, registers.h);} break;
+         case 0xED: {registers.l = set(5, registers.l);} break;
          case 0xEE: {write_memory(REGISTER_HL, set(5, read_memory(REGISTER_HL)));} break;
-         case 0xEF: {register_a = set(5, register_a);} break;
+         case 0xEF: {registers.a = set(5, registers.a);} break;
 
-         case 0xF0: {register_b = set(6, register_b);} break;
-         case 0xF1: {register_c = set(6, register_c);} break;
-         case 0xF2: {register_d = set(6, register_d);} break;
-         case 0xF3: {register_e = set(6, register_e);} break;
-         case 0xF4: {register_h = set(6, register_h);} break;
-         case 0xF5: {register_l = set(6, register_l);} break;
+         case 0xF0: {registers.b = set(6, registers.b);} break;
+         case 0xF1: {registers.c = set(6, registers.c);} break;
+         case 0xF2: {registers.d = set(6, registers.d);} break;
+         case 0xF3: {registers.e = set(6, registers.e);} break;
+         case 0xF4: {registers.h = set(6, registers.h);} break;
+         case 0xF5: {registers.l = set(6, registers.l);} break;
          case 0xF6: {write_memory(REGISTER_HL, set(6, read_memory(REGISTER_HL)));} break;
-         case 0xF7: {register_a = set(6, register_a);} break;
+         case 0xF7: {registers.a = set(6, registers.a);} break;
 
-         case 0xF8: {register_b = set(7, register_b);} break;
-         case 0xF9: {register_c = set(7, register_c);} break;
-         case 0xFA: {register_d = set(7, register_d);} break;
-         case 0xFB: {register_e = set(7, register_e);} break;
-         case 0xFC: {register_h = set(7, register_h);} break;
-         case 0xFD: {register_l = set(7, register_l);} break;
+         case 0xF8: {registers.b = set(7, registers.b);} break;
+         case 0xF9: {registers.c = set(7, registers.c);} break;
+         case 0xFA: {registers.d = set(7, registers.d);} break;
+         case 0xFB: {registers.e = set(7, registers.e);} break;
+         case 0xFC: {registers.h = set(7, registers.h);} break;
+         case 0xFD: {registers.l = set(7, registers.l);} break;
          case 0xFE: {write_memory(REGISTER_HL, set(7, read_memory(REGISTER_HL)));} break;
-         case 0xFF: {register_a = set(7, register_a);} break;
+         case 0xFF: {registers.a = set(7, registers.a);} break;
 
          default:
          {
@@ -2697,238 +2704,238 @@ fetch_and_execute()
       switch(opcode)
       {
          // NOTE(law): 8-bit load instructions
-         case 0x40: {/*register_b = register_b;*/} break;
-         case 0x41: {register_b = register_c;} break;
-         case 0x42: {register_b = register_d;} break;
-         case 0x43: {register_b = register_e;} break;
-         case 0x44: {register_b = register_h;} break;
-         case 0x45: {register_b = register_l;} break;
-         case 0x46: {register_b = read_memory(REGISTER_HL);} break;
-         case 0x47: {register_b = register_a;} break;
+         case 0x40: {/*registers.b = registers.b;*/} break;
+         case 0x41: {registers.b = registers.c;} break;
+         case 0x42: {registers.b = registers.d;} break;
+         case 0x43: {registers.b = registers.e;} break;
+         case 0x44: {registers.b = registers.h;} break;
+         case 0x45: {registers.b = registers.l;} break;
+         case 0x46: {registers.b = read_memory(REGISTER_HL);} break;
+         case 0x47: {registers.b = registers.a;} break;
 
-         case 0x48: {register_c = register_b;} break;
-         case 0x49: {/*register_c = register_c;*/} break;
-         case 0x4A: {register_c = register_d;} break;
-         case 0x4B: {register_c = register_e;} break;
-         case 0x4C: {register_c = register_h;} break;
-         case 0x4D: {register_c = register_l;} break;
-         case 0x4E: {register_c = read_memory(REGISTER_HL);} break;
-         case 0x4F: {register_c = register_a;} break;
+         case 0x48: {registers.c = registers.b;} break;
+         case 0x49: {/*registers.c = registers.c;*/} break;
+         case 0x4A: {registers.c = registers.d;} break;
+         case 0x4B: {registers.c = registers.e;} break;
+         case 0x4C: {registers.c = registers.h;} break;
+         case 0x4D: {registers.c = registers.l;} break;
+         case 0x4E: {registers.c = read_memory(REGISTER_HL);} break;
+         case 0x4F: {registers.c = registers.a;} break;
 
-         case 0x50: {register_d = register_b;} break;
-         case 0x51: {register_d = register_c;} break;
-         case 0x52: {/*register_d = register_d;*/} break;
-         case 0x53: {register_d = register_e;} break;
-         case 0x54: {register_d = register_h;} break;
-         case 0x55: {register_d = register_l;} break;
-         case 0x56: {register_d = read_memory(REGISTER_HL);} break;
-         case 0x57: {register_d = register_a;} break;
+         case 0x50: {registers.d = registers.b;} break;
+         case 0x51: {registers.d = registers.c;} break;
+         case 0x52: {/*registers.d = registers.d;*/} break;
+         case 0x53: {registers.d = registers.e;} break;
+         case 0x54: {registers.d = registers.h;} break;
+         case 0x55: {registers.d = registers.l;} break;
+         case 0x56: {registers.d = read_memory(REGISTER_HL);} break;
+         case 0x57: {registers.d = registers.a;} break;
 
-         case 0x58: {register_e = register_b;} break;
-         case 0x59: {register_e = register_c;} break;
-         case 0x5A: {register_e = register_d;} break;
-         case 0x5B: {/*register_e = register_e;*/} break;
-         case 0x5C: {register_e = register_h;} break;
-         case 0x5D: {register_e = register_l;} break;
-         case 0x5E: {register_e = read_memory(REGISTER_HL);} break;
-         case 0x5F: {register_e = register_a;} break;
+         case 0x58: {registers.e = registers.b;} break;
+         case 0x59: {registers.e = registers.c;} break;
+         case 0x5A: {registers.e = registers.d;} break;
+         case 0x5B: {/*registers.e = registers.e;*/} break;
+         case 0x5C: {registers.e = registers.h;} break;
+         case 0x5D: {registers.e = registers.l;} break;
+         case 0x5E: {registers.e = read_memory(REGISTER_HL);} break;
+         case 0x5F: {registers.e = registers.a;} break;
 
-         case 0x60: {register_h = register_b;} break;
-         case 0x61: {register_h = register_c;} break;
-         case 0x62: {register_h = register_d;} break;
-         case 0x63: {register_h = register_e;} break;
-         case 0x64: {/*register_h = register_h;*/} break;
-         case 0x65: {register_h = register_l;} break;
-         case 0x66: {register_h = read_memory(REGISTER_HL);} break;
-         case 0x67: {register_h = register_a;} break;
+         case 0x60: {registers.h = registers.b;} break;
+         case 0x61: {registers.h = registers.c;} break;
+         case 0x62: {registers.h = registers.d;} break;
+         case 0x63: {registers.h = registers.e;} break;
+         case 0x64: {/*registers.h = registers.h;*/} break;
+         case 0x65: {registers.h = registers.l;} break;
+         case 0x66: {registers.h = read_memory(REGISTER_HL);} break;
+         case 0x67: {registers.h = registers.a;} break;
 
-         case 0x68: {register_l = register_b;} break;
-         case 0x69: {register_l = register_c;} break;
-         case 0x6A: {register_l = register_d;} break;
-         case 0x6B: {register_l = register_e;} break;
-         case 0x6C: {register_l = register_h;} break;
-         case 0x6D: {/*register_l = register_l;*/} break;
-         case 0x6E: {register_l = read_memory(REGISTER_HL);} break;
-         case 0x6F: {register_l = register_a;} break;
+         case 0x68: {registers.l = registers.b;} break;
+         case 0x69: {registers.l = registers.c;} break;
+         case 0x6A: {registers.l = registers.d;} break;
+         case 0x6B: {registers.l = registers.e;} break;
+         case 0x6C: {registers.l = registers.h;} break;
+         case 0x6D: {/*registers.l = registers.l;*/} break;
+         case 0x6E: {registers.l = read_memory(REGISTER_HL);} break;
+         case 0x6F: {registers.l = registers.a;} break;
 
-         case 0x70: {write_memory(REGISTER_HL, register_b);} break;
-         case 0x71: {write_memory(REGISTER_HL, register_c);} break;
-         case 0x72: {write_memory(REGISTER_HL, register_d);} break;
-         case 0x73: {write_memory(REGISTER_HL, register_e);} break;
-         case 0x74: {write_memory(REGISTER_HL, register_h);} break;
-         case 0x75: {write_memory(REGISTER_HL, register_l);} break;
-         case 0x77: {write_memory(REGISTER_HL, register_a);} break;
+         case 0x70: {write_memory(REGISTER_HL, registers.b);} break;
+         case 0x71: {write_memory(REGISTER_HL, registers.c);} break;
+         case 0x72: {write_memory(REGISTER_HL, registers.d);} break;
+         case 0x73: {write_memory(REGISTER_HL, registers.e);} break;
+         case 0x74: {write_memory(REGISTER_HL, registers.h);} break;
+         case 0x75: {write_memory(REGISTER_HL, registers.l);} break;
+         case 0x77: {write_memory(REGISTER_HL, registers.a);} break;
 
-         case 0x78: {register_a = register_b;} break;
-         case 0x79: {register_a = register_c;} break;
-         case 0x7A: {register_a = register_d;} break;
-         case 0x7B: {register_a = register_e;} break;
-         case 0x7C: {register_a = register_h;} break;
-         case 0x7D: {register_a = register_l;} break;
-         case 0x7E: {register_a = read_memory(REGISTER_HL);} break;
-         case 0x7F: {/*register_a = register_a;*/} break;
+         case 0x78: {registers.a = registers.b;} break;
+         case 0x79: {registers.a = registers.c;} break;
+         case 0x7A: {registers.a = registers.d;} break;
+         case 0x7B: {registers.a = registers.e;} break;
+         case 0x7C: {registers.a = registers.h;} break;
+         case 0x7D: {registers.a = registers.l;} break;
+         case 0x7E: {registers.a = read_memory(REGISTER_HL);} break;
+         case 0x7F: {/*registers.a = registers.a;*/} break;
 
-         case 0x06: {register_b = read_memory(register_pc++);} break; // LD B, n
-         case 0x0E: {register_c = read_memory(register_pc++);} break; // LD C, n
-         case 0x1E: {register_e = read_memory(register_pc++);} break; // LD E, n
-         case 0x16: {register_d = read_memory(register_pc++);} break; // LD D, n
-         case 0x26: {register_h = read_memory(register_pc++);} break; // LD H, n
-         case 0x2E: {register_l = read_memory(register_pc++);} break; // LD L, n
-         case 0x36: {write_memory(REGISTER_HL, read_memory(register_pc++));} break; // LD (HL), n
-         case 0x3E: {register_a = read_memory(register_pc++);} break; // LD A, n
+         case 0x06: {registers.b = read_memory(registers.pc++);} break; // LD B, n
+         case 0x0E: {registers.c = read_memory(registers.pc++);} break; // LD C, n
+         case 0x1E: {registers.e = read_memory(registers.pc++);} break; // LD E, n
+         case 0x16: {registers.d = read_memory(registers.pc++);} break; // LD D, n
+         case 0x26: {registers.h = read_memory(registers.pc++);} break; // LD H, n
+         case 0x2E: {registers.l = read_memory(registers.pc++);} break; // LD L, n
+         case 0x36: {write_memory(REGISTER_HL, read_memory(registers.pc++));} break; // LD (HL), n
+         case 0x3E: {registers.a = read_memory(registers.pc++);} break; // LD A, n
 
-         case 0x0A: {register_a = read_memory(REGISTER_BC);} break; // LD A, (BC)
-         case 0x1A: {register_a = read_memory(REGISTER_DE);} break; // LD A, (DE)
+         case 0x0A: {registers.a = read_memory(REGISTER_BC);} break; // LD A, (BC)
+         case 0x1A: {registers.a = read_memory(REGISTER_DE);} break; // LD A, (DE)
 
          case 0xFA: // LD A, (nn)
          {
-            u8 address_low  = read_memory(register_pc++);
-            u8 address_high = read_memory(register_pc++);
+            u8 address_low  = read_memory(registers.pc++);
+            u8 address_high = read_memory(registers.pc++);
             u16 address = ((u16)address_high << 8) | ((u16)address_low);
 
-            register_a = read_memory(address);
+            registers.a = read_memory(address);
          } break;
 
-         case 0x02: {write_memory(REGISTER_BC, register_a);} break; // LD (BC), A
-         case 0x12: {write_memory(REGISTER_DE, register_a);} break; // LD (DE), A
+         case 0x02: {write_memory(REGISTER_BC, registers.a);} break; // LD (BC), A
+         case 0x12: {write_memory(REGISTER_DE, registers.a);} break; // LD (DE), A
 
          case 0xEA: // LD (nn), A
          {
-            u8 address_low  = read_memory(register_pc++);
-            u8 address_high = read_memory(register_pc++);
+            u8 address_low  = read_memory(registers.pc++);
+            u8 address_high = read_memory(registers.pc++);
             u16 address = ((u16)address_high << 8) | ((u16)address_low);
 
-            write_memory(address, register_a);
+            write_memory(address, registers.a);
          } break;
 
-         case 0xF2: {register_a = read_memory(0xFF00 + register_c);} break;  // LDH A, (0xFF00 + C)
-         case 0xE2: {write_memory(0xFF00 + register_c, register_a);} break; // LDH (0xFF00 + C), A
+         case 0xF2: {registers.a = read_memory(0xFF00 + registers.c);} break;  // LDH A, (0xFF00 + C)
+         case 0xE2: {write_memory(0xFF00 + registers.c, registers.a);} break; // LDH (0xFF00 + C), A
 
-         case 0xF0: {register_a = read_memory(0xFF00 + read_memory(register_pc++));} break;  // LDH A, (0xFF00 + n)
-         case 0xE0: {write_memory(0xFF00 + read_memory(register_pc++), register_a);} break; // LDH (0xFF00 + n), A
+         case 0xF0: {registers.a = read_memory(0xFF00 + read_memory(registers.pc++));} break;  // LDH A, (0xFF00 + n)
+         case 0xE0: {write_memory(0xFF00 + read_memory(registers.pc++), registers.a);} break; // LDH (0xFF00 + n), A
 
          case 0x22: // LDI (HL), A
          {
-            write_memory(REGISTER_HL, register_a);
+            write_memory(REGISTER_HL, registers.a);
             u16 updated_value = REGISTER_HL + 1;
 
-            register_h = updated_value >> 8;
-            register_l = updated_value & 0xFF;
+            registers.h = updated_value >> 8;
+            registers.l = updated_value & 0xFF;
          } break;
 
          case 0x32: // LDD (HL), A
          {
-            write_memory(REGISTER_HL, register_a);
+            write_memory(REGISTER_HL, registers.a);
             u16 updated_value = REGISTER_HL - 1;
 
-            register_h = updated_value >> 8;
-            register_l = updated_value & 0xFF;
+            registers.h = updated_value >> 8;
+            registers.l = updated_value & 0xFF;
          } break;
 
          case 0x2A: // LDI A, (HL)
          {
-            register_a = read_memory(REGISTER_HL);
+            registers.a = read_memory(REGISTER_HL);
             u16 updated_value = REGISTER_HL + 1;
 
-            register_h = updated_value >> 8;
-            register_l = updated_value & 0xFF;
+            registers.h = updated_value >> 8;
+            registers.l = updated_value & 0xFF;
          } break;
 
          case 0x3A: // LDD A, (HL)
          {
-            register_a = read_memory(REGISTER_HL);
+            registers.a = read_memory(REGISTER_HL);
             u16 updated_value = REGISTER_HL - 1;
 
-            register_h = updated_value >> 8;
-            register_l = updated_value & 0xFF;
+            registers.h = updated_value >> 8;
+            registers.l = updated_value & 0xFF;
          } break;
 
-         case 0xF9: {register_sp = REGISTER_HL;} break; // LD SP, HL
+         case 0xF9: {registers.sp = REGISTER_HL;} break; // LD SP, HL
 
          case 0xC5: // PUSH BC
          {
-            write_memory(--register_sp, register_b);
-            write_memory(--register_sp, register_c);
+            write_memory(--registers.sp, registers.b);
+            write_memory(--registers.sp, registers.c);
          } break;
 
          case 0xD5: // PUSH DE
          {
-            write_memory(--register_sp, register_d);
-            write_memory(--register_sp, register_e);
+            write_memory(--registers.sp, registers.d);
+            write_memory(--registers.sp, registers.e);
          } break;
 
          case 0xE5: // PUSH HL
          {
-            write_memory(--register_sp, register_h);
-            write_memory(--register_sp, register_l);
+            write_memory(--registers.sp, registers.h);
+            write_memory(--registers.sp, registers.l);
          } break;
 
          case 0xF5: // PUSH AP
          {
-            write_memory(--register_sp, register_a);
-            write_memory(--register_sp, register_f);
+            write_memory(--registers.sp, registers.a);
+            write_memory(--registers.sp, registers.f);
          } break;
 
          case 0xC1: // POP BC
          {
-            register_c = read_memory(register_sp++);
-            register_b = read_memory(register_sp++);
+            registers.c = read_memory(registers.sp++);
+            registers.b = read_memory(registers.sp++);
          } break;
 
          case 0xD1: // POP DE
          {
-            register_e = read_memory(register_sp++);
-            register_d = read_memory(register_sp++);
+            registers.e = read_memory(registers.sp++);
+            registers.d = read_memory(registers.sp++);
          } break;
 
          case 0xE1: //POP HL
          {
-            register_l = read_memory(register_sp++);
-            register_h = read_memory(register_sp++);
+            registers.l = read_memory(registers.sp++);
+            registers.h = read_memory(registers.sp++);
          } break;
 
          case 0xF1: // POP AF
          {
-            register_f = read_memory(register_sp++);
-            register_a = read_memory(register_sp++);
+            registers.f = read_memory(registers.sp++);
+            registers.a = read_memory(registers.sp++);
          } break;
 
 
          // NOTE(law): 16-bit load instructions
          case 0x08: // LD (nn), SP
          {
-            u8 address_low  = read_memory(register_pc++);
-            u8 address_high = read_memory(register_pc++);
+            u8 address_low  = read_memory(registers.pc++);
+            u8 address_high = read_memory(registers.pc++);
             u16 address = ((u16)address_high << 8) | ((u16)address_low);
 
-            write_memory16(address, register_sp);
+            write_memory16(address, registers.sp);
          } break;
 
          case 0x01: // LD BC, nn
          {
-            register_c = read_memory(register_pc++);
-            register_b = read_memory(register_pc++);
+            registers.c = read_memory(registers.pc++);
+            registers.b = read_memory(registers.pc++);
          } break;
 
          case 0x11: // LD DE, nn
          {
-            register_e = read_memory(register_pc++);
-            register_d = read_memory(register_pc++);
+            registers.e = read_memory(registers.pc++);
+            registers.d = read_memory(registers.pc++);
          } break;
 
          case 0x21: // LD HL, nn
          {
-            register_l = read_memory(register_pc++);
-            register_h = read_memory(register_pc++);
+            registers.l = read_memory(registers.pc++);
+            registers.h = read_memory(registers.pc++);
          } break;
 
          case 0x31: // LD SP, nn
          {
-            u8 value_low  = read_memory(register_pc++);
-            u8 value_high = read_memory(register_pc++);
+            u8 value_low  = read_memory(registers.pc++);
+            u8 value_high = read_memory(registers.pc++);
             u16 value = ((u16)value_high << 8) | ((u16)value_low);
 
-            register_sp = value;
+            registers.sp = value;
          } break;
 
 
@@ -2940,49 +2947,49 @@ fetch_and_execute()
 
 
          // NOTE(law): 8-bit Arithmetic/Logic instructions
-         case 0x80: add(register_b); break; // ADD A, B
-         case 0x81: add(register_c); break; // ADD A, C
-         case 0x82: add(register_d); break; // ADD A, D
-         case 0x83: add(register_e); break; // ADD A, E
-         case 0x84: add(register_h); break; // ADD A, H
-         case 0x85: add(register_l); break; // ADD A, L
+         case 0x80: add(registers.b); break; // ADD A, B
+         case 0x81: add(registers.c); break; // ADD A, C
+         case 0x82: add(registers.d); break; // ADD A, D
+         case 0x83: add(registers.e); break; // ADD A, E
+         case 0x84: add(registers.h); break; // ADD A, H
+         case 0x85: add(registers.l); break; // ADD A, L
          case 0x86: add(read_memory(REGISTER_HL)); break; // ADD A, (HL)
-         case 0x87: add(register_a); break; // ADD A, A
+         case 0x87: add(registers.a); break; // ADD A, A
 
-         case 0xC6: add(read_memory(register_pc++)); break; // ADD A, n
+         case 0xC6: add(read_memory(registers.pc++)); break; // ADD A, n
 
-         case 0x88: adc(register_b); break; // ADC A, B
-         case 0x89: adc(register_c); break; // ADC A, C
-         case 0x8A: adc(register_d); break; // ADC A, D
-         case 0x8B: adc(register_e); break; // ADC A, E
-         case 0x8C: adc(register_h); break; // ADC A, H
-         case 0x8D: adc(register_l); break; // ADC A, L
+         case 0x88: adc(registers.b); break; // ADC A, B
+         case 0x89: adc(registers.c); break; // ADC A, C
+         case 0x8A: adc(registers.d); break; // ADC A, D
+         case 0x8B: adc(registers.e); break; // ADC A, E
+         case 0x8C: adc(registers.h); break; // ADC A, H
+         case 0x8D: adc(registers.l); break; // ADC A, L
          case 0x8E: adc(read_memory(REGISTER_HL)); break; // ADC A, (HL)
-         case 0x8F: adc(register_a); break; // ADC A, A
+         case 0x8F: adc(registers.a); break; // ADC A, A
 
-         case 0xCE: {adc(read_memory(register_pc++));} break; // ADC A, n
+         case 0xCE: {adc(read_memory(registers.pc++));} break; // ADC A, n
 
-         case 0x90: sub(register_b); break; // SUB A, B
-         case 0x91: sub(register_c); break; // SUB A, C
-         case 0x92: sub(register_d); break; // SUB A, D
-         case 0x93: sub(register_e); break; // SUB A, E
-         case 0x94: sub(register_h); break; // SUB A, H
-         case 0x95: sub(register_l); break; // SUB A, L
+         case 0x90: sub(registers.b); break; // SUB A, B
+         case 0x91: sub(registers.c); break; // SUB A, C
+         case 0x92: sub(registers.d); break; // SUB A, D
+         case 0x93: sub(registers.e); break; // SUB A, E
+         case 0x94: sub(registers.h); break; // SUB A, H
+         case 0x95: sub(registers.l); break; // SUB A, L
          case 0x96: sub(read_memory(REGISTER_HL)); break; // SUB A, (HL)
-         case 0x97: sub(register_a); break; // SUB A, A
+         case 0x97: sub(registers.a); break; // SUB A, A
 
-         case 0xD6: sub(read_memory(register_pc++)); break; // SUB A, n
+         case 0xD6: sub(read_memory(registers.pc++)); break; // SUB A, n
 
-         case 0x98: sbc(register_b); break; // SBC A, B
-         case 0x99: sbc(register_c); break; // SBC A, C
-         case 0x9A: sbc(register_d); break; // SBC A, D
-         case 0x9B: sbc(register_e); break; // SBC A, E
-         case 0x9C: sbc(register_h); break; // SBC A, H
-         case 0x9D: sbc(register_l); break; // SBC A, L
+         case 0x98: sbc(registers.b); break; // SBC A, B
+         case 0x99: sbc(registers.c); break; // SBC A, C
+         case 0x9A: sbc(registers.d); break; // SBC A, D
+         case 0x9B: sbc(registers.e); break; // SBC A, E
+         case 0x9C: sbc(registers.h); break; // SBC A, H
+         case 0x9D: sbc(registers.l); break; // SBC A, L
          case 0x9E: sbc(read_memory(REGISTER_HL)); break; // SBC A, (HL)
-         case 0x9F: sbc(register_a); break; // SBC A, A
+         case 0x9F: sbc(registers.a); break; // SBC A, A
 
-         case 0xDE: sbc(read_memory(register_pc++)); break; // SBC A, n
+         case 0xDE: sbc(read_memory(registers.pc++)); break; // SBC A, n
 
          case 0x27: // DAA
          {
@@ -2994,163 +3001,163 @@ fetch_and_execute()
 
          case 0x2F: // CPL
          {
-            register_a = ~register_a;
-            register_f |= FLAG_N_MASK;
-            register_f |= FLAG_H_MASK;
+            registers.a = ~registers.a;
+            registers.f |= FLAG_N_MASK;
+            registers.f |= FLAG_H_MASK;
          } break;
 
-         case 0xA8: xor(register_b); break; // XOR A, B
-         case 0xA9: xor(register_c); break; // XOR A, C
-         case 0xAA: xor(register_d); break; // XOR A, D
-         case 0xAB: xor(register_e); break; // XOR A, E
-         case 0xAC: xor(register_h); break; // XOR A, H
-         case 0xAD: xor(register_l); break; // XOR A, L
+         case 0xA8: xor(registers.b); break; // XOR A, B
+         case 0xA9: xor(registers.c); break; // XOR A, C
+         case 0xAA: xor(registers.d); break; // XOR A, D
+         case 0xAB: xor(registers.e); break; // XOR A, E
+         case 0xAC: xor(registers.h); break; // XOR A, H
+         case 0xAD: xor(registers.l); break; // XOR A, L
          case 0xAE: xor(read_memory(REGISTER_HL)); break; // XOR A, (HL)
-         case 0xAF: xor(register_a); break; // XOR A, A
+         case 0xAF: xor(registers.a); break; // XOR A, A
 
-         case 0xEE: xor(read_memory(register_pc++)); break; // XOR A, n
+         case 0xEE: xor(read_memory(registers.pc++)); break; // XOR A, n
 
-         case 0xB0: or(register_b); break; // OR A, B
-         case 0xB1: or(register_c); break; // OR A, C
-         case 0xB2: or(register_d); break; // OR A, D
-         case 0xB3: or(register_e); break; // OR A, E
-         case 0xB4: or(register_h); break; // OR A, H
-         case 0xB5: or(register_l); break; // OR A, L
+         case 0xB0: or(registers.b); break; // OR A, B
+         case 0xB1: or(registers.c); break; // OR A, C
+         case 0xB2: or(registers.d); break; // OR A, D
+         case 0xB3: or(registers.e); break; // OR A, E
+         case 0xB4: or(registers.h); break; // OR A, H
+         case 0xB5: or(registers.l); break; // OR A, L
          case 0xB6: or(read_memory(REGISTER_HL)); break; // OR A, (HL)
-         case 0xB7: or(register_a); break; // OR A, A
+         case 0xB7: or(registers.a); break; // OR A, A
 
-         case 0xF6: or(read_memory(register_pc++)); break; // OR A, n
+         case 0xF6: or(read_memory(registers.pc++)); break; // OR A, n
 
-         case 0xA0: and(register_b); break; // AND A, B
-         case 0xA1: and(register_c); break; // AND A, C
-         case 0xA2: and(register_d); break; // AND A, D
-         case 0xA3: and(register_e); break; // AND A, E
-         case 0xA4: and(register_h); break; // AND A, H
-         case 0xA5: and(register_l); break; // AND A, L
+         case 0xA0: and(registers.b); break; // AND A, B
+         case 0xA1: and(registers.c); break; // AND A, C
+         case 0xA2: and(registers.d); break; // AND A, D
+         case 0xA3: and(registers.e); break; // AND A, E
+         case 0xA4: and(registers.h); break; // AND A, H
+         case 0xA5: and(registers.l); break; // AND A, L
          case 0xA6: and(read_memory(REGISTER_HL)); break; // AND A, (HL)
-         case 0xA7: and(register_a); break; // AND A, A
+         case 0xA7: and(registers.a); break; // AND A, A
 
-         case 0xE6: and(read_memory(register_pc++)); break; // AND A, n
+         case 0xE6: and(read_memory(registers.pc++)); break; // AND A, n
 
-         case 0xB8: cp(register_b); break; // CP A, B
-         case 0xB9: cp(register_c); break; // CP A, C
-         case 0xBA: cp(register_d); break; // CP A, D
-         case 0xBB: cp(register_e); break; // CP A, E
-         case 0xBC: cp(register_h); break; // CP A, H
-         case 0xBD: cp(register_l); break; // CP A, L
+         case 0xB8: cp(registers.b); break; // CP A, B
+         case 0xB9: cp(registers.c); break; // CP A, C
+         case 0xBA: cp(registers.d); break; // CP A, D
+         case 0xBB: cp(registers.e); break; // CP A, E
+         case 0xBC: cp(registers.h); break; // CP A, H
+         case 0xBD: cp(registers.l); break; // CP A, L
          case 0xBE: cp(read_memory(REGISTER_HL)); break; // CP A, (HL)
-         case 0xBF: cp(register_a); break; // CP A, A
+         case 0xBF: cp(registers.a); break; // CP A, A
 
-         case 0xFE: cp(read_memory(register_pc++)); break; // CP A, n
+         case 0xFE: cp(read_memory(registers.pc++)); break; // CP A, n
 
-         case 0x04: {register_b = inc(register_b);} break; // INC B
-         case 0x0C: {register_c = inc(register_c);} break; // INC C
-         case 0x14: {register_d = inc(register_d);} break; // INC D
-         case 0x1C: {register_e = inc(register_e);} break; // INC E
-         case 0x24: {register_h = inc(register_h);} break; // INC H
-         case 0x2C: {register_l = inc(register_l);} break; // INC L
+         case 0x04: {registers.b = inc(registers.b);} break; // INC B
+         case 0x0C: {registers.c = inc(registers.c);} break; // INC C
+         case 0x14: {registers.d = inc(registers.d);} break; // INC D
+         case 0x1C: {registers.e = inc(registers.e);} break; // INC E
+         case 0x24: {registers.h = inc(registers.h);} break; // INC H
+         case 0x2C: {registers.l = inc(registers.l);} break; // INC L
          case 0x34: {write_memory(REGISTER_HL, inc(read_memory(REGISTER_HL)));} break; // INC (HL)
-         case 0x3C: {register_a = inc(register_a); break;} // INC A
+         case 0x3C: {registers.a = inc(registers.a); break;} // INC A
 
-         case 0x05: {register_b = dec(register_b);} break; // DEC B
-         case 0x0D: {register_c = dec(register_c);} break; // DEC C
-         case 0x15: {register_d = dec(register_d);} break; // DEC D
-         case 0x1D: {register_e = dec(register_e);} break; // DEC E
-         case 0x25: {register_h = dec(register_h);} break; // DEC H
-         case 0x2D: {register_l = dec(register_l);} break; // DEC L
+         case 0x05: {registers.b = dec(registers.b);} break; // DEC B
+         case 0x0D: {registers.c = dec(registers.c);} break; // DEC C
+         case 0x15: {registers.d = dec(registers.d);} break; // DEC D
+         case 0x1D: {registers.e = dec(registers.e);} break; // DEC E
+         case 0x25: {registers.h = dec(registers.h);} break; // DEC H
+         case 0x2D: {registers.l = dec(registers.l);} break; // DEC L
          case 0x35: write_memory(REGISTER_HL, dec(read_memory(REGISTER_HL))); break; // DEC (HL)
-         case 0x3D: {register_a = dec(register_a);} break; // DEC A
+         case 0x3D: {registers.a = dec(registers.a);} break; // DEC A
 
 
          // NOTE(law): 16-bit Arithmetic/Logic instructions
          case 0x09: add16(REGISTER_BC); break; // ADD HL, BC
          case 0x19: add16(REGISTER_DE); break; // ADD HL, DE
          case 0x29: add16(REGISTER_HL); break; // ADD HL, HL
-         case 0x39: add16(register_sp); break; // ADD HL, SP
+         case 0x39: add16(registers.sp); break; // ADD HL, SP
 
-         case 0x03: inc16_bytes(&register_b, &register_c); break; // INC BC
-         case 0x13: inc16_bytes(&register_d, &register_e); break; // INC DE
-         case 0x23: inc16_bytes(&register_h, &register_l); break; // INC HL
-         case 0x33: inc16(&register_sp); break; // INC SP
+         case 0x03: inc16_bytes(&registers.b, &registers.c); break; // INC BC
+         case 0x13: inc16_bytes(&registers.d, &registers.e); break; // INC DE
+         case 0x23: inc16_bytes(&registers.h, &registers.l); break; // INC HL
+         case 0x33: inc16(&registers.sp); break; // INC SP
 
-         case 0x0B: dec16_bytes(&register_b, &register_c); break; // DEC BC
-         case 0x1B: dec16_bytes(&register_d, &register_e); break; // DEC DE
-         case 0x2B: dec16_bytes(&register_h, &register_l); break; // DEC HL
-         case 0x3B: dec16(&register_sp); break; // DEC SP
+         case 0x0B: dec16_bytes(&registers.b, &registers.c); break; // DEC BC
+         case 0x1B: dec16_bytes(&registers.d, &registers.e); break; // DEC DE
+         case 0x2B: dec16_bytes(&registers.h, &registers.l); break; // DEC HL
+         case 0x3B: dec16(&registers.sp); break; // DEC SP
 
          case 0xE8: // ADD SP, dd
          {
-            s8 offset = read_memory(register_pc++);
+            s8 offset = read_memory(registers.pc++);
 
-            s32 extended_address = (s32)register_sp + (s32)offset;
-            u8 half_sum = (register_sp & 0xF) + (offset & 0xF);
+            s32 extended_address = (s32)registers.sp + (s32)offset;
+            u8 half_sum = (registers.sp & 0xF) + (offset & 0xF);
 
-            register_sp = (u16)extended_address;
+            registers.sp = (u16)extended_address;
 
             // NOTE(law): The Zero flag is always unset.
-            register_f &= ~FLAG_Z_MASK;
+            registers.f &= ~FLAG_Z_MASK;
 
             // NOTE(law): The Subtraction flag is always unset.
-            register_f &= ~FLAG_N_MASK;
+            registers.f &= ~FLAG_N_MASK;
 
             // NOTE(law): Set the Half Carry flag when a carry from bit 3 occurs.
-            register_f = (register_f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
+            registers.f = (registers.f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
 
             // NOTE(law): Set the Carry flag when a carry from bit 7 occurs.
-            register_f = (register_f & ~FLAG_C_MASK) | ((extended_address > 0xFFFF) << FLAG_C_BIT);
+            registers.f = (registers.f & ~FLAG_C_MASK) | ((extended_address > 0xFFFF) << FLAG_C_BIT);
          } break;
 
          case 0xF8: // LD HL, SP + dd
          {
-            s8 offset = read_memory(register_pc++);
+            s8 offset = read_memory(registers.pc++);
 
-            s32 extended_address = (s32)register_sp + (s32)offset;
-            u8 half_sum = (register_sp & 0xF) + (offset & 0xF);
+            s32 extended_address = (s32)registers.sp + (s32)offset;
+            u8 half_sum = (registers.sp & 0xF) + (offset & 0xF);
 
-            register_h = (u8)((u16)extended_address >> 8);
-            register_l = (u8)((u16)extended_address & 0xFF);
+            registers.h = (u8)((u16)extended_address >> 8);
+            registers.l = (u8)((u16)extended_address & 0xFF);
 
             // NOTE(law): The Zero flag is always unset.
-            register_f &= ~FLAG_Z_MASK;
+            registers.f &= ~FLAG_Z_MASK;
 
             // NOTE(law): The Subtraction flag is always unset.
-            register_f &= ~FLAG_N_MASK;
+            registers.f &= ~FLAG_N_MASK;
 
             // NOTE(law): Set the Half Carry flag when a carry from bit 3 occurs.
-            register_f = (register_f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
+            registers.f = (registers.f & ~FLAG_H_MASK) | (((half_sum & 0x10) == 0x10) << FLAG_H_BIT);
 
             // NOTE(law): Set the Carry flag when a carry from bit 7 occurs.
-            register_f = (register_f & ~FLAG_C_MASK) | ((extended_address > 0xFFFF) << FLAG_C_BIT);
+            registers.f = (registers.f & ~FLAG_C_MASK) | ((extended_address > 0xFFFF) << FLAG_C_BIT);
          } break;
 
 
          // NOTE(law): CPU Control instructions
          case 0x3F: // CCF
          {
-            register_f &= ~FLAG_N_MASK;
-            register_f &= ~FLAG_H_MASK;
+            registers.f &= ~FLAG_N_MASK;
+            registers.f &= ~FLAG_H_MASK;
 
             u8 flipped_c = !FLAG_C;
-            register_f = (register_f & ~FLAG_C_MASK) | (flipped_c << FLAG_C_BIT);
+            registers.f = (registers.f & ~FLAG_C_MASK) | (flipped_c << FLAG_C_BIT);
          } break;
 
          case 0x37: // SCF
          {
-            register_f &= ~FLAG_N_MASK;
-            register_f &= ~FLAG_H_MASK;
-            register_f |= FLAG_C_MASK;
+            registers.f &= ~FLAG_N_MASK;
+            registers.f &= ~FLAG_H_MASK;
+            registers.f |= FLAG_C_MASK;
          } break;
 
          case 0x00: {} break; // NOP
          case 0x76: {halt = true;} break; // HALT
-         case 0x10: {stop = true; register_pc++;} break; // STOP
+         case 0x10: {stop = true; registers.pc++;} break; // STOP
          case 0xF3: {ime = false;} break; // DI
          case 0xFB: {ime = true;} break; // EI
 
 
          // NOTE(law): Jump instructions
          case 0xC3: jp(true); break; // JP nn
-         case 0xE9: {register_pc = REGISTER_HL;} break; // JP HL
+         case 0xE9: {registers.pc = REGISTER_HL;} break; // JP HL
 
          case 0xC2: {condition_succeeded = !FLAG_Z; jp(condition_succeeded);} break; // JP NZ, nn
          case 0xCA: {condition_succeeded = FLAG_Z;  jp(condition_succeeded);} break; // JP Z, nn
@@ -3244,7 +3251,7 @@ handle_interrupts()
       ime = false;
 
       // NOTE(law): The priority of interrupts are ordered by increasing bit
-      // index in register_if (i.e. VBlank with bit index 0 has the highest
+      // index in registers.if (i.e. VBlank with bit index 0 has the highest
       // priority).
       u32 bit_index = 0;
       for(; bit_index <= 4; ++bit_index)
@@ -3261,11 +3268,11 @@ handle_interrupts()
 
       // TODO(law): Wait for two cycles using NOPs.
 
-      write_memory(--register_sp, register_pc >> 8);
-      write_memory(--register_sp, register_pc & 0xFF);
+      write_memory(--registers.sp, registers.pc >> 8);
+      write_memory(--registers.sp, registers.pc & 0xFF);
 
       u16 isr_addresses[] = {0x40, 0x48, 0x50, 0x58, 0x60};
-      register_pc = isr_addresses[bit_index];
+      registers.pc = isr_addresses[bit_index];
    }
 }
 

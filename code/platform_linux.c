@@ -17,11 +17,11 @@
 
 #include "gem.c"
 
-typedef struct
+struct linux_window_dimensions
 {
    s32 width;
    s32 height;
-} Linux_Window_Dimensions;
+};
 
 #define LINUX_SECONDS_ELAPSED(start, end) ((float)((end).tv_sec - (start).tv_sec) \
         + (1e-9f * (float)((end).tv_nsec - (start).tv_nsec)))
@@ -146,7 +146,7 @@ linux_process_input(XEvent event)
             if(map.load_complete)
             {
                platform_log("Fetching and executing instruction...\n");
-               disassemble_instruction(register_pc);
+               disassemble_instruction(registers.pc);
 
                handle_interrupts();
                fetch_and_execute();
@@ -249,7 +249,7 @@ linux_process_events(Window window)
 }
 
 static void
-linux_get_window_dimensions(Window window, Linux_Window_Dimensions *dimensions)
+linux_get_window_dimensions(Window window, struct linux_window_dimensions *dimensions)
 {
    Display *display = linux_global_display;
 
@@ -267,7 +267,7 @@ linux_display_bitmap(Window window, struct pixel_bitmap bitmap)
    XImage *image = linux_global_window_buffer;
    GC graphics_context = linux_global_graphics_context;
 
-   Linux_Window_Dimensions dimensions;
+   struct linux_window_dimensions dimensions;
    linux_get_window_dimensions(window, &dimensions);
 
    s32 client_width = dimensions.width;
