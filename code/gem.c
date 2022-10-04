@@ -5,8 +5,19 @@
 #include <assert.h>
 #include <math.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+typedef  uint8_t u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+
+typedef  int8_t s8;
+typedef int16_t s16;
+typedef int32_t s32;
+typedef int64_t s64;
 
 #define TAU 6.2831853071f
 
@@ -14,79 +25,79 @@
 #define VERTICAL_SYNC_HZ 59.73f
 #define HORIZONTAL_SYNC_HZ 9198
 
-static unsigned char register_a;
-static unsigned char register_b;
-static unsigned char register_c;
-static unsigned char register_d;
-static unsigned char register_e;
-static unsigned char register_f;
-static unsigned char register_h;
-static unsigned char register_l;
+static u8 register_a;
+static u8 register_b;
+static u8 register_c;
+static u8 register_d;
+static u8 register_e;
+static u8 register_f;
+static u8 register_h;
+static u8 register_l;
 
-static unsigned short register_pc;
-static unsigned short register_sp;
+static u16 register_pc;
+static u16 register_sp;
 
 static bool halt;
 static bool stop;
 static bool ime;
 
-typedef struct
+struct platform_file
 {
    size_t size;
-   unsigned char *memory;
-} Platform_File;
+   u8 *memory;
+};
 
-typedef struct
+struct memory_arena
 {
-   unsigned char *base_address;
+   u8 *base_address;
    size_t size;
    size_t used;
-} Memory_Arena;
+};
 
-typedef struct
+struct memory_bank
 {
    size_t size;
-   unsigned char *memory;
-} Memory_Bank;
+   u8 *memory;
+};
 
-typedef enum
+enum memory_banking_mode
 {
    MEMORY_BANKING_MODE_SIMPLE   = 0x00,
    MEMORY_BANKING_MODE_ADVANCED = 0x01,
-} Memory_Banking_Mode;
+};
 
-typedef enum
+enum memory_bank_controller
 {
    MEMORY_BANK_CONTROLLER_NONE,
    MEMORY_BANK_CONTROLLER_MBC1,
    MEMORY_BANK_CONTROLLER_MBC2,
-} Memory_Bank_Controller;
+};
 
 static struct
 {
-   Memory_Bank rom_banks[512];
-   Memory_Bank ram_banks[16];
+   struct memory_bank rom_banks[512];
+   struct memory_bank ram_banks[16];
 
-   unsigned int rom_bank_count;
-   unsigned int ram_bank_count;
+   u32 rom_bank_count;
+   u32 ram_bank_count;
 
-   unsigned char rom_bank_mask;
+   u8 rom_bank_mask;
 
-   unsigned int rom_selected_index;
-   unsigned int ram_selected_index;
+   u32 rom_selected_index;
+   u32 ram_selected_index;
 
-   Memory_Banking_Mode banking_mode;
-   unsigned char upper_rom_bank_bits;
+   enum memory_banking_mode banking_mode;
+   u8 upper_rom_bank_bits;
 
-   Memory_Bank vram;
-   Memory_Bank wram;
-   Memory_Bank oam;
-   Memory_Bank io;
-   Memory_Bank hram;
+   struct memory_bank vram;
+   struct memory_bank wram;
+   struct memory_bank oam;
+   struct memory_bank io;
+   struct memory_bank hram;
 
-   unsigned char register_ie;
+   u8 register_ie;
 
-   Memory_Bank_Controller mbc;
+   enum memory_bank_controller mbc;
 
    bool load_complete;
    bool boot_complete;
@@ -95,8 +106,8 @@ static struct
 
 
 #define PLATFORM_LOG(name) void name(char *format, ...)
-#define PLATFORM_FREE_FILE(name) void name(Platform_File *file)
-#define PLATFORM_LOAD_FILE(name) Platform_File name(char *file_path)
+#define PLATFORM_FREE_FILE(name) void name(struct platform_file *file)
+#define PLATFORM_LOAD_FILE(name) struct platform_file name(char *file_path)
 
 static PLATFORM_LOG(platform_log);
 static PLATFORM_FREE_FILE(platform_free_file);
@@ -108,7 +119,7 @@ static PLATFORM_LOAD_FILE(platform_load_file);
 #define KIBIBYTES(value) (1024LL * (value))
 #define MEBIBYTES(value) (1024LL * KIBIBYTES(value))
 
-static unsigned char boot_rom[] =
+static u8 boot_rom[] =
 {
    0x31, 0xFE, 0xFF, 0xAF, 0x21, 0xFF, 0x9F, 0x32, 0xCB, 0x7C, 0x20, 0xFB, 0x21, 0x26, 0xFF, 0x0E,
    0x11, 0x3E, 0x80, 0x32, 0xE2, 0x0C, 0x3E, 0xF3, 0xE2, 0x32, 0x3E, 0x77, 0x77, 0x3E, 0xFC, 0xE0,
@@ -131,7 +142,7 @@ static unsigned char boot_rom[] =
 #define ALLOCATE(arena, Type) allocate((arena), sizeof(Type))
 
 static void *
-allocate(Memory_Arena *arena, size_t size)
+allocate(struct memory_arena *arena, size_t size)
 {
    assert(size <= (arena->size - arena->used));
 
@@ -142,7 +153,7 @@ allocate(Memory_Arena *arena, size_t size)
 }
 
 static void
-reset_arena(Memory_Arena *arena)
+reset_arena(struct memory_arena *arena)
 {
    arena->used = 0;
 }
@@ -154,26 +165,26 @@ zero_memory(void *memory, size_t size)
    memset(memory, 0, size);
 }
 
-static unsigned short
-endian_swap16(unsigned short value)
+static u16
+endian_swap16(u16 value)
 {
    // TODO(law): For now, we're just assuming the host machine is little
    // endian. In the future, it might be worthwhile to test endianess first and
    // allow the values to pass through unmodified if this ever runs on a big
    // endian machine (i.e. the same byte order of the Game Boy).
 
-   unsigned short result = ((value << 8) & 0xFF00) | ((value >> 8) & 0x00FF);
+   u16 result = ((value << 8) & 0xFF00) | ((value >> 8) & 0x00FF);
    return(result);
 }
 
 #pragma pack(push, 1)
-typedef struct
+struct cartridge_header
 {
    // NOTE(law): The format of the cartidge header is referenced from:
    // https://gbdev.io/pandocs/The_Cartridge_Header.html
 
-   unsigned int entry_point;
-   unsigned char logo[48];
+   u32 entry_point;
+   u8 logo[48];
 
    union
    {
@@ -182,36 +193,36 @@ typedef struct
       {
          char short_title[11];
          char manufacturer_code[4];
-         unsigned char cgb_flag;
+         u8 cgb_flag;
       };
    };
 
    char new_licensee_code[2];
-   unsigned char sgb_flag;
-   unsigned char cartridge_type;
-   unsigned char rom_size;
-   unsigned char ram_size;
-   unsigned char destination_code;
-   unsigned char old_licensee_code;
-   unsigned char mask_rom_version_number;
-   unsigned char header_checksum;
-   unsigned short global_checksum;
-} Cartridge_Header;
+   u8 sgb_flag;
+   u8 cartridge_type;
+   u8 rom_size;
+   u8 ram_size;
+   u8 destination_code;
+   u8 old_licensee_code;
+   u8 mask_rom_version_number;
+   u8 header_checksum;
+   u16 global_checksum;
+};
 #pragma pack(pop)
 
-static unsigned char
-read_memory(unsigned short address)
+static u8
+read_memory(u16 address)
 {
    // TODO(law): Condense this down once everything is working.
 
-   unsigned char result = 0x00;
+   u8 result = 0x00;
 
    if(address <= 0x3FFF)
    {
       // NOTE(law): ROM bank 00 (0000 - 3FFF).
       if(map.boot_complete || address >= 0x100)
       {
-         unsigned char bank_index = 0;
+         u8 bank_index = 0;
          if(map.banking_mode == MEMORY_BANKING_MODE_ADVANCED)
          {
             if(map.rom_bank_count > map.upper_rom_bank_bits)
@@ -230,7 +241,7 @@ read_memory(unsigned short address)
    else if(address <= 0x7FFF)
    {
       // NOTE(law): ROM bank 01-NN (4000 - 7FFF).
-      unsigned int selected_rom_index = MAXIMUM(map.rom_selected_index, 1);
+      u32 selected_rom_index = MAXIMUM(map.rom_selected_index, 1);
       result = map.rom_banks[selected_rom_index].memory[address - 0x4000];
    }
    else if(address <= 0x9FFF)
@@ -298,7 +309,7 @@ read_memory(unsigned short address)
 }
 
 static void
-write_memory(unsigned short address, char value)
+write_memory(u16 address, u8 value)
 {
    // TODO(law): Condense this down once everything is working.
 
@@ -326,7 +337,7 @@ write_memory(unsigned short address, char value)
       map.rom_selected_index = MAXIMUM(value & map.rom_bank_mask, 1);
       if(map.banking_mode == MEMORY_BANKING_MODE_ADVANCED)
       {
-         unsigned int extended_index = map.rom_selected_index + map.upper_rom_bank_bits;
+         u32 extended_index = map.rom_selected_index + map.upper_rom_bank_bits;
          if(map.rom_bank_count > extended_index)
          {
             map.rom_selected_index = extended_index;
@@ -339,18 +350,18 @@ write_memory(unsigned short address, char value)
       value &= 0x3;
       if(map.banking_mode == MEMORY_BANKING_MODE_SIMPLE)
       {
-         if((unsigned int)value < map.ram_bank_count)
+         if((u32)value < map.ram_bank_count)
          {
-            map.ram_selected_index = (unsigned int)value;
+            map.ram_selected_index = (u32)value;
          }
       }
       else
       {
-         if((unsigned int)value < map.rom_bank_count)
+         if((u32)value < map.rom_bank_count)
          {
             // TODO(law): This calculation is handled differently for MBC1M
             // cartridges - it only shifts up by 4.
-            map.upper_rom_bank_bits = (unsigned int)value << 5;
+            map.upper_rom_bank_bits = (u32)value << 5;
             map.rom_selected_index = value;
          }
       }
@@ -423,41 +434,41 @@ write_memory(unsigned short address, char value)
    }
 }
 
-static unsigned short
-read_memory16(unsigned short address)
+static u16
+read_memory16(u16 address)
 {
    // TODO(law): Confirm the endian-ness here.
-   unsigned char low  = read_memory(address + 0);
-   unsigned char high = read_memory(address + 1);
+   u8 low  = read_memory(address + 0);
+   u8 high = read_memory(address + 1);
 
-   unsigned short result = ((unsigned short)high << 8) | low;
+   u16 result = ((u16)high << 8) | low;
    return(result);
 }
 
 static void
-write_memory16(unsigned short address, unsigned short value)
+write_memory16(u16 address, u16 value)
 {
    // TODO(law): Confirm the endian-ness here.
-   unsigned char low  = (value & 0xF);
-   unsigned char high = (value >> 8);
+   u8 low  = (value & 0xF);
+   u8 high = (value >> 8);
 
    write_memory(address + 0, low);
    write_memory(address + 1, high);
 }
 
-static Cartridge_Header *
-get_cartridge_header(unsigned char *rom_memory)
+static struct cartridge_header *
+get_cartridge_header(u8 *rom_memory)
 {
-   Cartridge_Header *result = (Cartridge_Header *)(rom_memory + 0x100);
+   struct cartridge_header *result = (struct cartridge_header *)(rom_memory + 0x100);
    return(result);
 }
 
 static bool
-validate_cartridge_header(unsigned char *rom_memory, size_t rom_size)
+validate_cartridge_header(u8 *rom_memory, size_t rom_size)
 {
-   Cartridge_Header *header = get_cartridge_header(rom_memory);
+   struct cartridge_header *header = get_cartridge_header(rom_memory);
 
-   static unsigned char logo[] =
+   static u8 logo[] =
    {
       0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
       0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E, 0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
@@ -468,7 +479,7 @@ validate_cartridge_header(unsigned char *rom_memory, size_t rom_size)
    platform_log("Verifying logo...\n");
 
    assert(ARRAY_LENGTH(logo) == ARRAY_LENGTH(header->logo));
-   for(unsigned int byte_index = 0; byte_index < ARRAY_LENGTH(logo); ++byte_index)
+   for(u32 byte_index = 0; byte_index < ARRAY_LENGTH(logo); ++byte_index)
    {
       // TODO(law): CGB and later models noly check the top half of the logo,
       // i.e. th first 0x18 bytes.
@@ -484,8 +495,8 @@ validate_cartridge_header(unsigned char *rom_memory, size_t rom_size)
 
    platform_log("Verifying checksums...\n");
 
-   unsigned char header_checksum = 0;
-   for(unsigned short byte_offset = 0x0134; byte_offset <= 0x014C; ++byte_offset)
+   u8 header_checksum = 0;
+   for(u16 byte_offset = 0x0134; byte_offset <= 0x014C; ++byte_offset)
    {
       header_checksum = header_checksum - rom_memory[byte_offset] - 1;
    }
@@ -498,10 +509,10 @@ validate_cartridge_header(unsigned char *rom_memory, size_t rom_size)
       return(false);
    }
 
-   unsigned short global_checksum = 0;
-   for(unsigned int byte_offset = 0; byte_offset < rom_size; ++byte_offset)
+   u16 global_checksum = 0;
+   for(u32 byte_offset = 0; byte_offset < rom_size; ++byte_offset)
    {
-      global_checksum += (unsigned short)rom_memory[byte_offset];
+      global_checksum += (u16)rom_memory[byte_offset];
    }
 
    global_checksum -= ((header->global_checksum >> 0) & 0x00FF);
@@ -523,9 +534,9 @@ validate_cartridge_header(unsigned char *rom_memory, size_t rom_size)
 }
 
 static
-void dump_cartridge_header(unsigned char *stream)
+void dump_cartridge_header(u8 *stream)
 {
-   Cartridge_Header *header = get_cartridge_header(stream);
+   struct cartridge_header *header = get_cartridge_header(stream);
 
    platform_log("CARTRIDGE HEADER:\n");
 
@@ -609,14 +620,14 @@ void dump_cartridge_header(unsigned char *stream)
 }
 
 static void
-allocate_memory_bank(Memory_Arena *arena, Memory_Bank *bank, size_t size)
+allocate_memory_bank(struct memory_arena *arena, struct memory_bank *bank, size_t size)
 {
    bank->size = size;
    bank->memory = allocate(arena, size);
 }
 
 static void
-unload_cartridge(Memory_Arena *arena)
+unload_cartridge(struct memory_arena *arena)
 {
    reset_arena(arena);
    zero_memory(&map, sizeof(map));
@@ -624,12 +635,12 @@ unload_cartridge(Memory_Arena *arena)
 }
 
 static void
-load_cartridge(Memory_Arena *arena, char *file_path)
+load_cartridge(struct memory_arena *arena, char *file_path)
 {
    unload_cartridge(arena);
 
    platform_log("Loading ROM at \"%s\"...\n", file_path);
-   Platform_File rom = platform_load_file(file_path);
+   struct platform_file rom = platform_load_file(file_path);
 
    if(!rom.memory)
    {
@@ -637,7 +648,7 @@ load_cartridge(Memory_Arena *arena, char *file_path)
       return;
    }
 
-   if(rom.size < (sizeof(boot_rom) + sizeof(Cartridge_Header)))
+   if(rom.size < (sizeof(boot_rom) + sizeof(struct cartridge_header)))
    {
       platform_log("ERROR: The file was too small to contain a cartridge header - the ROM was not loaded.\n");
       platform_free_file(&rom);
@@ -661,21 +672,21 @@ load_cartridge(Memory_Arena *arena, char *file_path)
    // NOTE(law): Once it seems like we have a valid cartridge, allocate the
    // various memory banks.
 
-   Cartridge_Header *header = get_cartridge_header(rom.memory);
+   struct cartridge_header *header = get_cartridge_header(rom.memory);
 
    map.rom_bank_mask = ~(0xFF << (header->rom_size + 1));
    map.rom_bank_count = (2 << header->rom_size);
-   for(unsigned int bank_index = 0; bank_index < map.rom_bank_count; ++bank_index)
+   for(u32 bank_index = 0; bank_index < map.rom_bank_count; ++bank_index)
    {
-      Memory_Bank *bank = map.rom_banks + bank_index;
+      struct memory_bank *bank = map.rom_banks + bank_index;
       allocate_memory_bank(arena, bank, KIBIBYTES(16));
    }
 
-   unsigned int ram_bank_counts[] = {0, 0, 1, 4, 16, 8};
+   u32 ram_bank_counts[] = {0, 0, 1, 4, 16, 8};
    map.ram_bank_count = ram_bank_counts[header->ram_size];
-   for(unsigned int bank_index = 0; bank_index < map.ram_bank_count; ++bank_index)
+   for(u32 bank_index = 0; bank_index < map.ram_bank_count; ++bank_index)
    {
-      Memory_Bank *bank = map.ram_banks + bank_index;
+      struct memory_bank *bank = map.ram_banks + bank_index;
       allocate_memory_bank(arena, bank, KIBIBYTES(8));
    }
 
@@ -712,8 +723,8 @@ load_cartridge(Memory_Arena *arena, char *file_path)
       } break;
    }
 
-   unsigned char *source = rom.memory;
-   for(unsigned int bank_index = 0; bank_index < map.rom_bank_count; ++bank_index)
+   u8 *source = rom.memory;
+   for(u32 bank_index = 0; bank_index < map.rom_bank_count; ++bank_index)
    {
       size_t size = map.rom_banks[bank_index].size;
       memcpy(map.rom_banks[bank_index].memory, source, size);
@@ -729,15 +740,15 @@ load_cartridge(Memory_Arena *arena, char *file_path)
    map.load_complete = true;
 }
 
-static unsigned short
-disassemble_instruction(unsigned short address)
+static u16
+disassemble_instruction(u16 address)
 {
-   unsigned short initial_address = address;
+   u16 initial_address = address;
 
    // NOTE(law): Print the address of the current instruction.
    platform_log("0x%04X  ", address);
 
-   unsigned char opcode = read_memory(address++);
+   u8 opcode = read_memory(address++);
    if(opcode == 0xCB)
    {
       opcode = read_memory(address++);
@@ -1130,7 +1141,7 @@ disassemble_instruction(unsigned short address)
 
          case 0xFA:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("LD A, (0x%04X)      ", operand);
          } break;
@@ -1140,7 +1151,7 @@ disassemble_instruction(unsigned short address)
 
          case 0xEA:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("LD (0x%04X), A      ", operand);
          } break;
@@ -1172,35 +1183,35 @@ disassemble_instruction(unsigned short address)
             // NOTE(law): 16-bit load instructions
          case 0x08:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("LD 0x%04X, SP       ", operand);
          } break;
 
          case 0x01:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("LD BC, 0x%04X       ", operand);
          } break;
 
          case 0x11:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("LD DE, 0x%04X       ", operand);
          } break;
 
          case 0x21:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("LD HL, 0x%04X       ", operand);
          } break;
 
          case 0x31:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("LD SP, 0x%04X       ", operand);
          } break;
@@ -1359,35 +1370,35 @@ disassemble_instruction(unsigned short address)
 
          case 0xC3:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("JP 0x%04X           ", operand);
          } break;
 
          case 0xC2:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("JP NZ, 0x%04X       ", operand);
          } break;
 
          case 0xCA:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("JP Z, 0x%04X        ", operand);
          } break;
 
          case 0xD2:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("JP NC, 0x%04X       ", operand);
          } break;
 
          case 0xDA:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("JP C, 0x%04X        ", operand);
          } break;
@@ -1400,35 +1411,35 @@ disassemble_instruction(unsigned short address)
 
          case 0xC4:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("CALL NZ, 0x%04X     ", operand);
          } break;
 
          case 0xCC:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("CALL Z, 0x%04X      ", operand);
          } break;
 
          case 0xCD:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("CALL 0x%04X         ", operand);
          } break;
 
          case 0xD4:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("CALL NC, 0x%04X     ", operand);
          } break;
 
          case 0xDC:
          {
-            unsigned short operand = read_memory16(address);
+            u16 operand = read_memory16(address);
             address += 2;
             platform_log("CALL C, 0x%04X      ", operand);
          } break;
@@ -1467,34 +1478,34 @@ disassemble_instruction(unsigned short address)
    }
 
    platform_log("    ; ");
-   for(unsigned short index = initial_address; index < address; ++index)
+   for(u16 index = initial_address; index < address; ++index)
    {
       platform_log("%02X ", read_memory(index));
    }
 
    platform_log("\n");
 
-   unsigned short result = address - initial_address;
+   u16 result = address - initial_address;
    return(result);
 }
 
 static void
-disassemble_stream(unsigned short address, unsigned int byte_count)
+disassemble_stream(u16 address, u32 byte_count)
 {
    // TODO(law): 16-bit operations are not being endian swapped in this
    // function.
 
-   unsigned int start = address;
+   u32 start = address;
    while((address - start) < byte_count)
    {
       address += disassemble_instruction(address);
    }
 }
 
-#define REGISTER_BC (((unsigned short)register_b << 8) | (unsigned short)register_c)
-#define REGISTER_DE (((unsigned short)register_d << 8) | (unsigned short)register_e)
-#define REGISTER_HL (((unsigned short)register_h << 8) | (unsigned short)register_l)
-#define REGISTER_AF (((unsigned short)register_a << 8) | (unsigned short)register_f)
+#define REGISTER_BC (((u16)register_b << 8) | (u16)register_c)
+#define REGISTER_DE (((u16)register_d << 8) | (u16)register_e)
+#define REGISTER_HL (((u16)register_h << 8) | (u16)register_l)
+#define REGISTER_AF (((u16)register_a << 8) | (u16)register_f)
 
 #define REGISTER_IE 0xFFFF
 #define REGISTER_IF 0xFF0F
@@ -1549,14 +1560,14 @@ disassemble_stream(unsigned short address, unsigned int byte_count)
 #define JOYPAD_RIGHT_A_MASK    (1 << JOYPAD_RIGHT_A_MASK)
 
 static void
-add(unsigned char value)
+add(u8 value)
 {
    // NOTE(law): Compute these values before updating register A for use in the
    // flag calculations.
-   unsigned short extended_sum = (unsigned short)register_a + (unsigned short)value;
-   unsigned char half_sum = (register_a & 0xF) + (value & 0xF);
+   u16 extended_sum = (u16)register_a + (u16)value;
+   u8 half_sum = (register_a & 0xF) + (value & 0xF);
 
-   register_a = (unsigned char)extended_sum;
+   register_a = (u8)extended_sum;
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
    register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
@@ -1572,14 +1583,14 @@ add(unsigned char value)
 }
 
 static void
-adc(unsigned char value)
+adc(u8 value)
 {
    // NOTE(law): Compute these values before updating register A for use in the
    // flag calculations.
-   unsigned short extended_sum = (unsigned short)register_a + (unsigned short)value + FLAG_C;
-   unsigned char half_sum = (register_a & 0xF) + (value & 0xF) + FLAG_C;
+   u16 extended_sum = (u16)register_a + (u16)value + FLAG_C;
+   u8 half_sum = (register_a & 0xF) + (value & 0xF) + FLAG_C;
 
-   register_a = (unsigned char)extended_sum;
+   register_a = (u8)extended_sum;
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
    register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == 0) << FLAG_Z_BIT);
@@ -1597,12 +1608,12 @@ adc(unsigned char value)
 }
 
 static void
-sub(unsigned char value)
+sub(u8 value)
 {
    // NOTE(law): Compute these values before updating register A for use in the
    // flag calculations.
-   bool is_negative = (signed char)register_a < (signed char)value;
-   bool is_half_negative = (signed char)(register_a & 0xF) < (signed char)(value & 0xF);
+   bool is_negative = (s8)register_a < (s8)value;
+   bool is_half_negative = (s8)(register_a & 0xF) < (s8)(value & 0xF);
 
    register_a -= value;
 
@@ -1621,12 +1632,12 @@ sub(unsigned char value)
 }
 
 static void
-sbc(unsigned char value)
+sbc(u8 value)
 {
-   signed char value_and_carry = (signed char)value + FLAG_C;
+   s8 value_and_carry = (s8)value + FLAG_C;
 
-   bool is_negative = (signed char)register_a < value_and_carry;
-   bool is_half_negative = (signed char)(register_a & 0xF) < (value_and_carry & 0xF);
+   bool is_negative = (s8)register_a < value_and_carry;
+   bool is_half_negative = (s8)(register_a & 0xF) < (value_and_carry & 0xF);
 
    register_a -= (value);
 
@@ -1645,7 +1656,7 @@ sbc(unsigned char value)
 }
 
 static void
-xor(unsigned char value)
+xor(u8 value)
 {
    register_a ^= value;
 
@@ -1663,7 +1674,7 @@ xor(unsigned char value)
 }
 
 static void
-or(unsigned char value)
+or(u8 value)
 {
    register_a |= value;
 
@@ -1681,7 +1692,7 @@ or(unsigned char value)
 }
 
 static void
-and(unsigned char value)
+and(u8 value)
 {
    register_a &= value;
 
@@ -1699,7 +1710,7 @@ and(unsigned char value)
 }
 
 static void
-cp(unsigned char value)
+cp(u8 value)
 {
    // NOTE(law): If the compared values are equivalent, set the Zero flag.
    register_f = (register_f & ~FLAG_Z_MASK) | ((register_a == value) << FLAG_Z_BIT);
@@ -1710,21 +1721,21 @@ cp(unsigned char value)
    // NOTE(law): If the result of subtracting the first 4 bits of value from the
    // first 4 bits of A would produce a result that is less than 0, set the
    // Half Carry flag.
-   bool is_half_negative = (signed char)(register_a & 0xF) < (signed char)(value & 0xF);
+   bool is_half_negative = (s8)(register_a & 0xF) < (s8)(value & 0xF);
    register_f = (register_f & ~FLAG_H_MASK) | (is_half_negative << FLAG_H_BIT);
 
    // NOTE(law): If the result of subtracting value from A would produce a
    // result that is less than 0, set the Carry flag.
-   bool is_negative = (signed char)register_a < (signed char)value;
+   bool is_negative = (s8)register_a < (s8)value;
    register_f = (register_f & ~FLAG_C_MASK) | (is_negative << FLAG_C_BIT);
 }
 
-static unsigned char
-inc(unsigned char value)
+static u8
+inc(u8 value)
 {
    // NOTE(law): Increment
 
-   unsigned char half_sum = (value & 0xF) + 1;
+   u8 half_sum = (value & 0xF) + 1;
 
    value += 1;
 
@@ -1742,12 +1753,12 @@ inc(unsigned char value)
    return(value);
 }
 
-static unsigned char
-dec(unsigned char value)
+static u8
+dec(u8 value)
 {
    // NOTE(law): Decrement
 
-   bool is_half_negative = (signed char)(value & 0xF) < 1;
+   bool is_half_negative = (s8)(value & 0xF) < 1;
 
    value -= 1;
 
@@ -1766,12 +1777,12 @@ dec(unsigned char value)
 }
 
 static void
-add16(unsigned short value)
+add16(u16 value)
 {
-   unsigned int extended_sum = (unsigned int)REGISTER_HL + (unsigned int)value;
-   unsigned char half_sum = (REGISTER_HL & 0xF) + (value & 0xF);
+   u32 extended_sum = (u32)REGISTER_HL + (u32)value;
+   u8 half_sum = (REGISTER_HL & 0xF) + (value & 0xF);
 
-   unsigned short sum = REGISTER_HL + value;
+   u16 sum = REGISTER_HL + value;
    register_h = (sum >> 8);
    register_l = (sum & 0xFF);
 
@@ -1787,9 +1798,9 @@ add16(unsigned short value)
 }
 
 static void
-inc16_bytes(unsigned char *high, unsigned char *low)
+inc16_bytes(u8 *high, u8 *low)
 {
-   unsigned short value = ((unsigned short)*high << 8) | ((unsigned short)*low & 0xFF);
+   u16 value = ((u16)*high << 8) | ((u16)*low & 0xFF);
    value += 1;
 
    *high = (value >> 8);
@@ -1800,9 +1811,9 @@ inc16_bytes(unsigned char *high, unsigned char *low)
 }
 
 static void
-dec16_bytes(unsigned char *high, unsigned char *low)
+dec16_bytes(u8 *high, u8 *low)
 {
-   unsigned short value = ((unsigned short)*high << 8) | (unsigned short)*low;
+   u16 value = ((u16)*high << 8) | (u16)*low;
    value -= 1;
 
    *high = (value >> 8);
@@ -1812,7 +1823,7 @@ dec16_bytes(unsigned char *high, unsigned char *low)
 }
 
 static void
-inc16(unsigned short *value)
+inc16(u16 *value)
 {
    *value += 1;
 
@@ -1820,7 +1831,7 @@ inc16(unsigned short *value)
 }
 
 static void
-dec16(unsigned short *value)
+dec16(u16 *value)
 {
    *value -= 1;
 
@@ -1830,12 +1841,12 @@ dec16(unsigned short *value)
 static void
 jp(bool should_jump)
 {
-   unsigned char address_low  = read_memory(register_pc++);
-   unsigned char address_high = read_memory(register_pc++);
+   u8 address_low  = read_memory(register_pc++);
+   u8 address_high = read_memory(register_pc++);
 
    if(should_jump)
    {
-      unsigned short address = ((unsigned short)address_high << 8) | (unsigned short)address_low;
+      u16 address = ((u16)address_high << 8) | (u16)address_low;
       register_pc = address;
    }
 }
@@ -1843,27 +1854,27 @@ jp(bool should_jump)
 static void
 jr(bool should_jump)
 {
-   signed char offset = read_memory(register_pc++);
+   s8 offset = read_memory(register_pc++);
 
    if(should_jump)
    {
-      signed short address = (signed short)register_pc + (signed short)offset;
-      register_pc = (unsigned short)address;
+      s16 address = (s16)register_pc + (s16)offset;
+      register_pc = (u16)address;
    }
 }
 
 static void
 call(bool should_jump)
 {
-   unsigned char address_low  = read_memory(register_pc++);
-   unsigned char address_high = read_memory(register_pc++);
+   u8 address_low  = read_memory(register_pc++);
+   u8 address_high = read_memory(register_pc++);
 
    if(should_jump)
    {
       write_memory(--register_sp, register_pc >> 8);
       write_memory(--register_sp, register_pc & 0xFF);
 
-      unsigned short address = ((unsigned short)address_high << 8) | (unsigned short)address_low;
+      u16 address = ((u16)address_high << 8) | (u16)address_low;
       register_pc = address;
    }
 }
@@ -1871,33 +1882,33 @@ call(bool should_jump)
 static void
 ret(bool should_jump)
 {
-   unsigned char address_low  = read_memory(register_sp++);
-   unsigned char address_high = read_memory(register_sp++);
+   u8 address_low  = read_memory(register_sp++);
+   u8 address_high = read_memory(register_sp++);
 
    if(should_jump)
    {
-      unsigned short address = ((unsigned short)address_high << 8) | (unsigned short)address_low;
+      u16 address = ((u16)address_high << 8) | (u16)address_low;
       register_pc = address;
    }
 }
 
 static void
-rst(unsigned char address_low)
+rst(u8 address_low)
 {
    write_memory(--register_sp, register_pc >> 8);
    write_memory(--register_sp, register_pc & 0xFF);
 
-   unsigned short address = (unsigned short)address_low;
+   u16 address = (u16)address_low;
    register_pc = address;
 }
 
-static unsigned char
-rl(unsigned char value)
+static u8
+rl(u8 value)
 {
    // NOTE(law): Rotate Left
 
-   unsigned char previous_bit7 = (value >> 7);
-   unsigned char previous_c = FLAG_C;
+   u8 previous_bit7 = (value >> 7);
+   u8 previous_c = FLAG_C;
 
    value <<= 1;
 
@@ -1925,8 +1936,8 @@ rla()
 {
    // NOTE(law): Rotate Left Accumulator
 
-   unsigned char previous_bit7 = (register_a >> 7);
-   unsigned char previous_c = FLAG_C;
+   u8 previous_bit7 = (register_a >> 7);
+   u8 previous_c = FLAG_C;
 
    register_a <<= 1;
 
@@ -1947,12 +1958,12 @@ rla()
    register_f = (register_f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
 }
 
-static unsigned char
-rlc(unsigned char value)
+static u8
+rlc(u8 value)
 {
    // NOTE(law): Rotate Left Circular
 
-   unsigned char previous_bit7 = (value >> 7);
+   u8 previous_bit7 = (value >> 7);
 
    value <<= 1;
 
@@ -1980,7 +1991,7 @@ rlca()
 {
    // NOTE(law): Rotate Left Circular Accumulator
 
-   unsigned char previous_bit7 = (register_a >> 7);
+   u8 previous_bit7 = (register_a >> 7);
 
    register_a <<= 1;
 
@@ -2001,13 +2012,13 @@ rlca()
    register_f = (register_f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
 }
 
-static unsigned char
-rr(unsigned char value)
+static u8
+rr(u8 value)
 {
    // NOTE(law): Rotate Right
 
-   unsigned char previous_bit0 = (value & 0x01);
-   unsigned char previous_c = FLAG_C;
+   u8 previous_bit0 = (value & 0x01);
+   u8 previous_c = FLAG_C;
 
    value >>= 1;
 
@@ -2035,8 +2046,8 @@ rra()
 {
    // NOTE(law): Rotate Right Accumulator
 
-   unsigned char previous_bit0 = (register_a & 0x01);
-   unsigned char previous_c = FLAG_C;
+   u8 previous_bit0 = (register_a & 0x01);
+   u8 previous_c = FLAG_C;
 
    register_a >>= 1;
 
@@ -2056,12 +2067,12 @@ rra()
    register_f = (register_f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
 }
 
-static unsigned char
-rrc(unsigned char value)
+static u8
+rrc(u8 value)
 {
    // NOTE(law): Rotate Right Circular
 
-   unsigned char previous_bit0 = (value & 0x01);
+   u8 previous_bit0 = (value & 0x01);
 
    value >>= 1;
 
@@ -2089,7 +2100,7 @@ rrca()
 {
    // NOTE(law): Rotate Right Circular Accumulator
 
-   unsigned char previous_bit0 = (register_a & 0x01);
+   u8 previous_bit0 = (register_a & 0x01);
 
    register_a >>= 1;
 
@@ -2111,12 +2122,12 @@ rrca()
 }
 
 static void
-bit(unsigned int bit_index, unsigned char value)
+bit(u32 bit_index, u8 value)
 {
    // NOTE(law) Update the Zero flag based on the value of specified bit index
    // of the value. If the bit is zero, set the flag, else reset it.
 
-   unsigned char bit_value = ((value >> bit_index) & 0x01);
+   u8 bit_value = ((value >> bit_index) & 0x01);
    register_f = (register_f & ~(FLAG_Z_MASK)) | ((bit_value == 0) << FLAG_Z_BIT);
 
    // NOTE(law): The Subtraction flag is always reset.
@@ -2128,26 +2139,26 @@ bit(unsigned int bit_index, unsigned char value)
    // NOTE(law): The Carry flag is not affected.
 }
 
-static unsigned char
-set(unsigned int bit_index, unsigned char value)
+static u8
+set(u32 bit_index, u8 value)
 {
    value |= (1 << bit_index);
    return(value);
 }
 
-static unsigned char
-res(unsigned int bit_index, unsigned char value)
+static u8
+res(u32 bit_index, u8 value)
 {
    value &= ~(1 << bit_index);
    return(value);
 }
 
-static unsigned char
-sla(unsigned char value)
+static u8
+sla(u8 value)
 {
    // NOTE(law): Shift Left Arithmetic
 
-   unsigned char previous_bit7 = (value >> 7);
+   u8 previous_bit7 = (value >> 7);
 
    value <<= 1;
 
@@ -2166,16 +2177,16 @@ sla(unsigned char value)
    return(value);
 }
 
-static unsigned char
-sra(unsigned char value)
+static u8
+sra(u8 value)
 {
    // NOTE(law): Shift Right Arithmetic
 
-   unsigned char previous_bit0 = (value & 0x01);
+   u8 previous_bit0 = (value & 0x01);
 
    // TODO(law): Confirm that casting to a signed value actually produces an
    // arithmetic shift in this case.
-   value = ((signed short)value >> 1);
+   value = ((s16)value >> 1);
 
    // NOTE(law): Set the Zero flag if the resulting computation produced a zero.
    register_f = (register_f & ~FLAG_Z_MASK) | ((value == 0) << FLAG_Z_BIT);
@@ -2192,22 +2203,22 @@ sra(unsigned char value)
    return(value);
 }
 
-static unsigned char
-swap(unsigned char value)
+static u8
+swap(u8 value)
 {
-   unsigned char high_nibble = (value >> 4);
-   unsigned char low_nibble = (value & 0xF);
+   u8 high_nibble = (value >> 4);
+   u8 low_nibble = (value & 0xF);
 
    value = (low_nibble << 4) | high_nibble;
    return(value);
 }
 
-static unsigned char
-srl(unsigned char value)
+static u8
+srl(u8 value)
 {
    // NOTE(law): Shift Right Logical
 
-   unsigned char previous_bit0 = (value & 0x01);
+   u8 previous_bit0 = (value & 0x01);
 
    // TODO(law): Confirm that using an unsigned value actually produces a
    // logical shift in this case.
@@ -2228,13 +2239,13 @@ srl(unsigned char value)
    return(value);
 }
 
-typedef struct
+struct opcode_cycle_count
 {
-   unsigned int count;
-   unsigned int failed_condition_count;
-} Opcode_Cycle_Count;
+   u32 count;
+   u32 failed_condition_count;
+};
 
-Opcode_Cycle_Count nonprefix_cycle_counts[] =
+struct opcode_cycle_count nonprefix_cycle_counts[] =
 {
    [0x00] = {4},      [0x01] = {12}, [0x02] = {8},      [0x03] = {8},
    [0x04] = {4},      [0x05] = {4},  [0x06] = {8},      [0x07] = {4},
@@ -2302,7 +2313,7 @@ Opcode_Cycle_Count nonprefix_cycle_counts[] =
    [0xFC] = {4},      [0xFD] = {4},  [0xFE] = {8},      [0xFF] = {16},
 };
 
-Opcode_Cycle_Count cbprefix_cycle_counts[] =
+struct opcode_cycle_count cbprefix_cycle_counts[] =
 {
    [0x00] = {8}, [0x01] = {8}, [0x02] = {8},  [0x03] = {8},
    [0x04] = {8}, [0x05] = {8}, [0x06] = {16}, [0x07] = {8},
@@ -2370,10 +2381,10 @@ Opcode_Cycle_Count cbprefix_cycle_counts[] =
    [0xFC] = {8}, [0xFD] = {8}, [0xFE] = {16}, [0xFF] = {8},
 };
 
-static unsigned int
+static u32
 fetch_and_execute()
 {
-   unsigned char opcode = read_memory(register_pc++);
+   u8 opcode = read_memory(register_pc++);
    bool condition_succeeded = true;
 
    bool prefix_opcode = (opcode == 0xCB);
@@ -2771,9 +2782,9 @@ fetch_and_execute()
 
          case 0xFA: // LD A, (nn)
          {
-            unsigned char address_low  = read_memory(register_pc++);
-            unsigned char address_high = read_memory(register_pc++);
-            unsigned short address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
+            u8 address_low  = read_memory(register_pc++);
+            u8 address_high = read_memory(register_pc++);
+            u16 address = ((u16)address_high << 8) | ((u16)address_low);
 
             register_a = read_memory(address);
          } break;
@@ -2783,9 +2794,9 @@ fetch_and_execute()
 
          case 0xEA: // LD (nn), A
          {
-            unsigned char address_low  = read_memory(register_pc++);
-            unsigned char address_high = read_memory(register_pc++);
-            unsigned short address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
+            u8 address_low  = read_memory(register_pc++);
+            u8 address_high = read_memory(register_pc++);
+            u16 address = ((u16)address_high << 8) | ((u16)address_low);
 
             write_memory(address, register_a);
          } break;
@@ -2799,7 +2810,7 @@ fetch_and_execute()
          case 0x22: // LDI (HL), A
          {
             write_memory(REGISTER_HL, register_a);
-            unsigned short updated_value = REGISTER_HL + 1;
+            u16 updated_value = REGISTER_HL + 1;
 
             register_h = updated_value >> 8;
             register_l = updated_value & 0xFF;
@@ -2808,7 +2819,7 @@ fetch_and_execute()
          case 0x32: // LDD (HL), A
          {
             write_memory(REGISTER_HL, register_a);
-            unsigned short updated_value = REGISTER_HL - 1;
+            u16 updated_value = REGISTER_HL - 1;
 
             register_h = updated_value >> 8;
             register_l = updated_value & 0xFF;
@@ -2817,7 +2828,7 @@ fetch_and_execute()
          case 0x2A: // LDI A, (HL)
          {
             register_a = read_memory(REGISTER_HL);
-            unsigned short updated_value = REGISTER_HL + 1;
+            u16 updated_value = REGISTER_HL + 1;
 
             register_h = updated_value >> 8;
             register_l = updated_value & 0xFF;
@@ -2826,7 +2837,7 @@ fetch_and_execute()
          case 0x3A: // LDD A, (HL)
          {
             register_a = read_memory(REGISTER_HL);
-            unsigned short updated_value = REGISTER_HL - 1;
+            u16 updated_value = REGISTER_HL - 1;
 
             register_h = updated_value >> 8;
             register_l = updated_value & 0xFF;
@@ -2886,9 +2897,9 @@ fetch_and_execute()
          // NOTE(law): 16-bit load instructions
          case 0x08: // LD (nn), SP
          {
-            unsigned char address_low  = read_memory(register_pc++);
-            unsigned char address_high = read_memory(register_pc++);
-            unsigned short address = ((unsigned short)address_high << 8) | ((unsigned short)address_low);
+            u8 address_low  = read_memory(register_pc++);
+            u8 address_high = read_memory(register_pc++);
+            u16 address = ((u16)address_high << 8) | ((u16)address_low);
 
             write_memory16(address, register_sp);
          } break;
@@ -2913,9 +2924,9 @@ fetch_and_execute()
 
          case 0x31: // LD SP, nn
          {
-            unsigned char value_low  = read_memory(register_pc++);
-            unsigned char value_high = read_memory(register_pc++);
-            unsigned short value = ((unsigned short)value_high << 8) | ((unsigned short)value_low);
+            u8 value_low  = read_memory(register_pc++);
+            u8 value_high = read_memory(register_pc++);
+            u16 value = ((u16)value_high << 8) | ((u16)value_low);
 
             register_sp = value;
          } break;
@@ -3069,12 +3080,12 @@ fetch_and_execute()
 
          case 0xE8: // ADD SP, dd
          {
-            signed char offset = read_memory(register_pc++);
+            s8 offset = read_memory(register_pc++);
 
-            signed int extended_address = (signed int)register_sp + (signed int)offset;
-            unsigned char half_sum = (register_sp & 0xF) + (offset & 0xF);
+            s32 extended_address = (s32)register_sp + (s32)offset;
+            u8 half_sum = (register_sp & 0xF) + (offset & 0xF);
 
-            register_sp = (unsigned short)extended_address;
+            register_sp = (u16)extended_address;
 
             // NOTE(law): The Zero flag is always unset.
             register_f &= ~FLAG_Z_MASK;
@@ -3091,13 +3102,13 @@ fetch_and_execute()
 
          case 0xF8: // LD HL, SP + dd
          {
-            signed char offset = read_memory(register_pc++);
+            s8 offset = read_memory(register_pc++);
 
-            signed int extended_address = (signed int)register_sp + (signed int)offset;
-            unsigned char half_sum = (register_sp & 0xF) + (offset & 0xF);
+            s32 extended_address = (s32)register_sp + (s32)offset;
+            u8 half_sum = (register_sp & 0xF) + (offset & 0xF);
 
-            register_h = (unsigned char)((unsigned short)extended_address >> 8);
-            register_l = (unsigned char)((unsigned short)extended_address & 0xFF);
+            register_h = (u8)((u16)extended_address >> 8);
+            register_l = (u8)((u16)extended_address & 0xFF);
 
             // NOTE(law): The Zero flag is always unset.
             register_f &= ~FLAG_Z_MASK;
@@ -3119,7 +3130,7 @@ fetch_and_execute()
             register_f &= ~FLAG_N_MASK;
             register_f &= ~FLAG_H_MASK;
 
-            unsigned char flipped_c = !FLAG_C;
+            u8 flipped_c = !FLAG_C;
             register_f = (register_f & ~FLAG_C_MASK) | (flipped_c << FLAG_C_BIT);
          } break;
 
@@ -3195,7 +3206,7 @@ fetch_and_execute()
       }
    }
 
-   unsigned int cycles = 0;
+   u32 cycles = 0;
    if(prefix_opcode)
    {
       if(condition_succeeded)
@@ -3235,7 +3246,7 @@ handle_interrupts()
       // NOTE(law): The priority of interrupts are ordered by increasing bit
       // index in register_if (i.e. VBlank with bit index 0 has the highest
       // priority).
-      unsigned int bit_index = 0;
+      u32 bit_index = 0;
       for(; bit_index <= 4; ++bit_index)
       {
          if((REGISTER_IF >> bit_index) & 0x1)
@@ -3253,7 +3264,7 @@ handle_interrupts()
       write_memory(--register_sp, register_pc >> 8);
       write_memory(--register_sp, register_pc & 0xFF);
 
-      unsigned short isr_addresses[] = {0x40, 0x48, 0x50, 0x58, 0x60};
+      u16 isr_addresses[] = {0x40, 0x48, 0x50, 0x58, 0x60};
       register_pc = isr_addresses[bit_index];
    }
 }
@@ -3273,43 +3284,43 @@ handle_interrupts()
 #define PALETTE_DATA_OBJ0 0xFF48
 #define PALETTE_DATA_OBJ1 0xFF49
 
-typedef struct
+struct pixel_bitmap
 {
-   unsigned int width;
-   unsigned int height;
-   unsigned int *memory;
-} Bitmap;
+   u32 width;
+   u32 height;
+   u32 *memory;
+};
 
-typedef enum
+enum monochrome_color_scheme
 {
    MONOCHROME_COLOR_OPTION_DMG,
    MONOCHROME_COLOR_OPTION_MGB,
    MONOCHROME_COLOR_OPTION_LIGHT,
 
    MONOCHROME_COLOR_OPTION_COUNT,
-} Monochrome_Color_Scheme;
+};
 
-unsigned int monochrome_color_schemes[][5] =
+u32 monochrome_color_schemes[][5] =
 {
    {0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820, 0xFFACC480}, // DMG
    {0xFFE0DBCD, 0xFFA89F94, 0xFF706B66, 0xFF2B2B26, 0xFFBDB890}, // MGB
    {0xFF65F2BA, 0xFF39C28C, 0xFF30B37F, 0xFF0E7F54, 0xFFBDB890}, // LIGHT
 };
 
-static unsigned int
-get_display_off_color(Monochrome_Color_Scheme color_scheme)
+static u32
+get_display_off_color(enum monochrome_color_scheme color_scheme)
 {
-   unsigned int result = monochrome_color_schemes[color_scheme][4];
+   u32 result = monochrome_color_schemes[color_scheme][4];
    return(result);
 }
 
 static void
-get_palette(unsigned int *palette, unsigned short address, Monochrome_Color_Scheme color_scheme)
+get_palette(u32 *palette, u16 address, enum monochrome_color_scheme color_scheme)
 {
    assert(ARRAY_LENGTH(monochrome_color_schemes) == MONOCHROME_COLOR_OPTION_COUNT);
-   unsigned int *colors = monochrome_color_schemes[color_scheme];
+   u32 *colors = monochrome_color_schemes[color_scheme];
 
-   unsigned char palette_data = read_memory(address);
+   u8 palette_data = read_memory(address);
 
    palette[0] = colors[(palette_data >> 0) & 0x3];
    palette[1] = colors[(palette_data >> 2) & 0x3];
@@ -3318,11 +3329,11 @@ get_palette(unsigned int *palette, unsigned short address, Monochrome_Color_Sche
 }
 
 static void
-clear(Bitmap *bitmap, unsigned int color)
+clear(struct pixel_bitmap *bitmap, u32 color)
 {
-   for(unsigned int y = 0; y < bitmap->height; ++y)
+   for(u32 y = 0; y < bitmap->height; ++y)
    {
-      for(unsigned int x = 0; x < bitmap->width; ++x)
+      for(u32 x = 0; x < bitmap->width; ++x)
       {
          bitmap->memory[(bitmap->width * y) + x] = color;
       }
@@ -3330,47 +3341,47 @@ clear(Bitmap *bitmap, unsigned int color)
 }
 
 static void
-clear_scanline(Bitmap *bitmap, unsigned int scanline, unsigned int color)
+clear_scanline(struct pixel_bitmap *bitmap, u32 scanline, u32 color)
 {
-   for(unsigned int x = 0; x < bitmap->width; ++x)
+   for(u32 x = 0; x < bitmap->width; ++x)
    {
       bitmap->memory[(bitmap->width * scanline) + x] = color;
    }
 }
 
 static void
-render_vram_scanline(Bitmap *bitmap, Monochrome_Color_Scheme scheme, unsigned int scanline)
+render_vram_scanline(struct pixel_bitmap *bitmap, enum monochrome_color_scheme scheme, u32 scanline)
 {
-   unsigned int palette[4];
-   unsigned short palette_address = PALETTE_DATA_BG;
+   u32 palette[4];
+   u16 palette_address = PALETTE_DATA_BG;
    get_palette(palette, palette_address, scheme);
 
    clear_scanline(bitmap, scanline, palette[0]);
 
-   unsigned int tile_offset = 0;
-   unsigned char *tiles = map.vram.memory + (tile_offset * 16);
+   u32 tile_offset = 0;
+   u8 *tiles = map.vram.memory + (tile_offset * 16);
 
-   unsigned int tile_y = scanline / TILE_PIXEL_DIM;
-   unsigned int pixel_y = scanline % TILE_PIXEL_DIM;
+   u32 tile_y = scanline / TILE_PIXEL_DIM;
+   u32 pixel_y = scanline % TILE_PIXEL_DIM;
 
-   for(unsigned int tile_x = 0; tile_x < TILES_PER_SCREEN_WIDTH; ++tile_x)
+   for(u32 tile_x = 0; tile_x < TILES_PER_SCREEN_WIDTH; ++tile_x)
    {
-      unsigned int tile_index = (TILES_PER_SCREEN_WIDTH * tile_y) + tile_x;
-      unsigned char *tile = tiles + (2 * tile_index * TILE_PIXEL_DIM);
+      u32 tile_index = (TILES_PER_SCREEN_WIDTH * tile_y) + tile_x;
+      u8 *tile = tiles + (2 * tile_index * TILE_PIXEL_DIM);
 
-      unsigned char byte0 = tile[(2 * pixel_y) + 0];
-      unsigned char byte1 = tile[(2 * pixel_y) + 1];
+      u8 byte0 = tile[(2 * pixel_y) + 0];
+      u8 byte1 = tile[(2 * pixel_y) + 1];
 
-      for(unsigned int pixel_x = 0; pixel_x < TILE_PIXEL_DIM; ++pixel_x)
+      for(u32 pixel_x = 0; pixel_x < TILE_PIXEL_DIM; ++pixel_x)
       {
-         unsigned int bit_offset = TILE_PIXEL_DIM - 1 - pixel_x;
-         unsigned char low_bit  = (byte0 >> bit_offset) & 0x1;
-         unsigned char high_bit = (byte1 >> bit_offset) & 0x1;
+         u32 bit_offset = TILE_PIXEL_DIM - 1 - pixel_x;
+         u8 low_bit  = (byte0 >> bit_offset) & 0x1;
+         u8 high_bit = (byte1 >> bit_offset) & 0x1;
 
-         unsigned int color_index = (high_bit << 1) | low_bit;
+         u32 color_index = (high_bit << 1) | low_bit;
 
-         unsigned int bitmap_y = (tile_y * TILE_PIXEL_DIM) + pixel_y;
-         unsigned int bitmap_x = (tile_x * TILE_PIXEL_DIM) + pixel_x;
+         u32 bitmap_y = (tile_y * TILE_PIXEL_DIM) + pixel_y;
+         u32 bitmap_x = (tile_x * TILE_PIXEL_DIM) + pixel_x;
 
          bool is_object = (palette_address == PALETTE_DATA_OBJ1 || palette_address == PALETTE_DATA_OBJ0);
          if(!(is_object && color_index == 0))
@@ -3383,7 +3394,7 @@ render_vram_scanline(Bitmap *bitmap, Monochrome_Color_Scheme scheme, unsigned in
 
 #define SOUND_OUTPUT_HZ 48000
 #define SOUND_OUTPUT_CHANNEL_COUNT 2
-#define SOUND_OUTPUT_BYTES_PER_SAMPLE (SOUND_OUTPUT_CHANNEL_COUNT * sizeof(signed short))
+#define SOUND_OUTPUT_BYTES_PER_SAMPLE (SOUND_OUTPUT_CHANNEL_COUNT * sizeof(s16))
 
 #define DEBUG_SINE_WAVE 0
 
@@ -3404,23 +3415,23 @@ render_vram_scanline(Bitmap *bitmap, Monochrome_Color_Scheme scheme, unsigned in
 #define CHANNEL3_RESTART (register_nr34 >> 7)
 #define CHANNEL4_RESTART (register_nr44 >> 7)
 
-typedef struct
+struct sound_samples
 {
-   unsigned int sample_index;
-   unsigned int size;
+   u32 sample_index;
+   u32 size;
 
-   signed short *samples;
-} Sound_Samples;
+   s16 *samples;
+};
 
 static void
-clear_sound_samples(Sound_Samples *sound)
+clear_sound_samples(struct sound_samples *sound)
 {
    sound->sample_index = 0;
    zero_memory(sound->samples, sound->size);
 }
 
 static void
-generate_debug_samples(Sound_Samples *destination, unsigned int sample_count)
+generate_debug_samples(struct sound_samples *destination, u32 sample_count)
 {
    assert(destination->size >= (destination->sample_index + sample_count) * SOUND_OUTPUT_BYTES_PER_SAMPLE);
 
@@ -3429,12 +3440,12 @@ generate_debug_samples(Sound_Samples *destination, unsigned int sample_count)
    float volume = 1000.0f;
    float wave_period = SOUND_OUTPUT_HZ / 256;
 
-   unsigned int offset = destination->sample_index * SOUND_OUTPUT_CHANNEL_COUNT;
-   signed short *samples = destination->samples;
+   u32 offset = destination->sample_index * SOUND_OUTPUT_CHANNEL_COUNT;
+   s16 *samples = destination->samples;
 
-   for(unsigned int index = 0; index < (sample_count * SOUND_OUTPUT_CHANNEL_COUNT); index += SOUND_OUTPUT_CHANNEL_COUNT)
+   for(u32 index = 0; index < (sample_count * SOUND_OUTPUT_CHANNEL_COUNT); index += SOUND_OUTPUT_CHANNEL_COUNT)
    {
-      signed short sample = (signed short)(sin(wave_t) * volume);
+      s16 sample = (s16)(sin(wave_t) * volume);
 
       *(samples + offset + index + 0) = sample;
       *(samples + offset + index + 1) = sample;
@@ -3450,60 +3461,60 @@ generate_debug_samples(Sound_Samples *destination, unsigned int sample_count)
 }
 
 static void
-generate_sound_sample(Sound_Samples *destination)
+generate_sound_sample(struct sound_samples *destination)
 {
-   static int frame_sequncer_clock = 0;
+   static u32 frame_sequncer_clock = 0;
 
    // NOTE(law): Master volume.
-   unsigned int register_nr50 = read_memory(0xFF24);
+   u32 register_nr50 = read_memory(0xFF24);
 
-   unsigned char enable_vin_left = (register_nr50 >> 7) & 0x1;
-   unsigned char enable_vin_right = (register_nr50 >> 3) & 0x1;
+   u8 enable_vin_left = (register_nr50 >> 7) & 0x1;
+   u8 enable_vin_right = (register_nr50 >> 3) & 0x1;
 
-   unsigned char volume_left = ((register_nr50 >> 4) & 0x7) + 1; // Range of 1-8
-   unsigned char volume_right = ((register_nr50 >> 0) & 0x7) + 1; // Range of 1-8
+   u8 volume_left = ((register_nr50 >> 4) & 0x7) + 1; // Range of 1-8
+   u8 volume_right = ((register_nr50 >> 0) & 0x7) + 1; // Range of 1-8
 
    // NOTE(law): Per-channel sound panning.
-   unsigned int register_nr51 = read_memory(0xFF25);
+   u32 register_nr51 = read_memory(0xFF25);
 
-   unsigned char channel4_left_on = (register_nr51 >> 7) & 0x1;
-   unsigned char channel3_left_on = (register_nr51 >> 6) & 0x1;
-   unsigned char channel2_left_on = (register_nr51 >> 5) & 0x1;
-   unsigned char channel1_left_on = (register_nr51 >> 4) & 0x1;
+   u8 channel4_left_on = (register_nr51 >> 7) & 0x1;
+   u8 channel3_left_on = (register_nr51 >> 6) & 0x1;
+   u8 channel2_left_on = (register_nr51 >> 5) & 0x1;
+   u8 channel1_left_on = (register_nr51 >> 4) & 0x1;
 
-   unsigned char channel4_right_on = (register_nr51 >> 3) & 0x1;
-   unsigned char channel3_right_on = (register_nr51 >> 2) & 0x1;
-   unsigned char channel2_right_on = (register_nr51 >> 1) & 0x1;
-   unsigned char channel1_right_on = (register_nr51 >> 0) & 0x1;
+   u8 channel4_right_on = (register_nr51 >> 3) & 0x1;
+   u8 channel3_right_on = (register_nr51 >> 2) & 0x1;
+   u8 channel2_right_on = (register_nr51 >> 1) & 0x1;
+   u8 channel1_right_on = (register_nr51 >> 0) & 0x1;
 
    // NOTE(law): Channel 1 registers.
-   unsigned char register_nr10 = read_memory(0xFF10); // NOTE(law): Sweep
-   unsigned char register_nr11 = read_memory(0xFF11); // NOTE(law): Length
-   unsigned char register_nr12 = read_memory(0xFF12); // NOTE(law): Volume
-   unsigned char register_nr13 = read_memory(0xFF13); // NOTE(law): Frequency
-   unsigned char register_nr14 = read_memory(0xFF14); // NOTE(law): Control
+   u8 register_nr10 = read_memory(0xFF10); // NOTE(law): Sweep
+   u8 register_nr11 = read_memory(0xFF11); // NOTE(law): Length
+   u8 register_nr12 = read_memory(0xFF12); // NOTE(law): Volume
+   u8 register_nr13 = read_memory(0xFF13); // NOTE(law): Frequency
+   u8 register_nr14 = read_memory(0xFF14); // NOTE(law): Control
 
    // NOTE(law): Channel 2 registers.
-   unsigned char register_nr21 = read_memory(0xFF16); // NOTE(law): Length
-   unsigned char register_nr22 = read_memory(0xFF17); // NOTE(law): Volume
-   unsigned char register_nr23 = read_memory(0xFF18); // NOTE(law): Frequency
-   unsigned char register_nr24 = read_memory(0xFF19); // NOTE(law): Control
+   u8 register_nr21 = read_memory(0xFF16); // NOTE(law): Length
+   u8 register_nr22 = read_memory(0xFF17); // NOTE(law): Volume
+   u8 register_nr23 = read_memory(0xFF18); // NOTE(law): Frequency
+   u8 register_nr24 = read_memory(0xFF19); // NOTE(law): Control
 
    // NOTE(law): Channel 3 registers.
-   unsigned char register_nr30 = read_memory(0xFF30); // NOTE(law): On/off
-   unsigned char register_nr31 = read_memory(0xFF31); // NOTE(law): Length
-   unsigned char register_nr32 = read_memory(0xFF32); // NOTE(law): Volume
-   unsigned char register_nr33 = read_memory(0xFF33); // NOTE(law): Frequency
-   unsigned char register_nr34 = read_memory(0xFF34); // NOTE(law): Control
+   u8 register_nr30 = read_memory(0xFF30); // NOTE(law): On/off
+   u8 register_nr31 = read_memory(0xFF31); // NOTE(law): Length
+   u8 register_nr32 = read_memory(0xFF32); // NOTE(law): Volume
+   u8 register_nr33 = read_memory(0xFF33); // NOTE(law): Frequency
+   u8 register_nr34 = read_memory(0xFF34); // NOTE(law): Control
 
    // NOTE(law): Channel 4 registers.
-   unsigned char register_nr41 = read_memory(0xFF20); // NOTE(law): Length
-   unsigned char register_nr42 = read_memory(0xFF21); // NOTE(law): Volume
-   unsigned char register_nr43 = read_memory(0xFF22); // NOTE(law): Frequency
-   unsigned char register_nr44 = read_memory(0xFF23); // NOTE(law): Control
+   u8 register_nr41 = read_memory(0xFF20); // NOTE(law): Length
+   u8 register_nr42 = read_memory(0xFF21); // NOTE(law): Volume
+   u8 register_nr43 = read_memory(0xFF22); // NOTE(law): Frequency
+   u8 register_nr44 = read_memory(0xFF23); // NOTE(law): Control
 
    // NOTE(law); Sound on/off.
-   unsigned char register_nr52 = read_memory(0xFF26);
+   u8 register_nr52 = read_memory(0xFF26);
    if(MASTER_ON)
    {
       // NOTE(law): Restart channels that request a restart.
@@ -3521,9 +3532,9 @@ generate_sound_sample(Sound_Samples *destination)
    // NOTE(law): Write back the on/off channel changes to memory.
    write_memory(0xFF26, register_nr52);
 
-   static char channel1_volume = 0;
-   static char channel1_envelope_period = 0;
-   static char channel1_envelope_direction = 0;
+   static u8 channel1_volume = 0;
+   static u8 channel1_envelope_period = 0;
+   static u8 channel1_envelope_direction = 0;
    static float channel1_frequency = 0;
    static float channel1_duty = 0;
 
@@ -3531,22 +3542,22 @@ generate_sound_sample(Sound_Samples *destination)
    if(CHANNEL1_ON)
    {
       // NOTE(law): Length
-      unsigned char wave_pattern_duty = (register_nr11 >> 6) & 0x3;
-      unsigned char sound_length_data = (register_nr11 >> 0) & 0x1F; // Range: 0-63
+      u8 wave_pattern_duty = (register_nr11 >> 6) & 0x3;
+      u8 sound_length_data = (register_nr11 >> 0) & 0x1F; // Range: 0-63
 
       // NOTE(law): Volume
-      unsigned char initial_volume = (register_nr12 >> 4) & 0xF; // Range 0-15
-      unsigned char envelope_direction = (register_nr12 >> 3) & 0x1; // 0 <-, 1 ->
-      unsigned char envelope_period = (register_nr12 >> 0) & 0x7; // Range 0-7
+      u8 initial_volume = (register_nr12 >> 4) & 0xF; // Range 0-15
+      u8 envelope_direction = (register_nr12 >> 3) & 0x1; // 0 <-, 1 ->
+      u8 envelope_period = (register_nr12 >> 0) & 0x7; // Range 0-7
 
       // NOTE(law): Frequency
-      unsigned char frequency_low = register_nr13;
+      u8 frequency_low = register_nr13;
 
       // NOTE(law): Control
-      unsigned char counter_selection = (register_nr14 >> 6) & 0x1;
-      unsigned char frequency_high = (register_nr14 >> 0) & 0x7;
+      u8 counter_selection = (register_nr14 >> 6) & 0x1;
+      u8 frequency_high = (register_nr14 >> 0) & 0x7;
 
-      unsigned short frequency_data = ((unsigned short)frequency_high << 8) | frequency_low;
+      u16 frequency_data = ((u16)frequency_high << 8) | frequency_low;
 
       if(CHANNEL1_RESTART)
       {
@@ -3590,7 +3601,7 @@ generate_sound_sample(Sound_Samples *destination)
 
       if(channel1_envelope_period)
       {
-         static char counter = 0;
+         static u8 counter = 0;
          if(counter > 0)
          {
             counter--;
@@ -3617,16 +3628,16 @@ generate_sound_sample(Sound_Samples *destination)
    frame_sequncer_clock++;
 
    // NOTE(law): Fill output buffer with samples.
-   signed short sample_left = 0;
-   signed short sample_right = 0;
+   s16 sample_left = 0;
+   s16 sample_right = 0;
 
    if(CHANNEL1_ON)
    {
       static float wave_position = 0;
 
-      signed short sample = (wave_position < channel1_duty)
-      ? -(signed short)channel1_volume
-      : (signed short)channel1_volume;
+      s16 sample = (wave_position < channel1_duty)
+      ? -(s16)channel1_volume
+      : (s16)channel1_volume;
 
       if(channel1_left_on) {sample_left += sample * volume_left;}
       if(channel1_right_on) {sample_right += sample * volume_right;}
@@ -3640,26 +3651,26 @@ generate_sound_sample(Sound_Samples *destination)
 
    if(CHANNEL2_ON)
    {
-      signed short sample = 0;
+      s16 sample = 0;
       if(channel1_left_on) {sample_left += sample * volume_left;}
       if(channel1_right_on) {sample_right += sample * volume_right;}
    }
 
    if(CHANNEL3_ON)
    {
-      signed short sample = 0;
+      s16 sample = 0;
       if(channel1_left_on) {sample_left += sample * volume_left;}
       if(channel1_right_on) {sample_right += sample * volume_right;}
    }
 
    if(CHANNEL4_ON)
    {
-      signed short sample = 0;
+      s16 sample = 0;
       if(channel1_left_on) {sample_left += sample * volume_left;}
       if(channel1_right_on) {sample_right += sample * volume_right;}
    }
 
-   unsigned int offset = destination->sample_index * SOUND_OUTPUT_CHANNEL_COUNT;
+   u32 offset = destination->sample_index * SOUND_OUTPUT_CHANNEL_COUNT;
 
    *(destination->samples + offset + 0) = sample_left;
    *(destination->samples + offset + 1) = sample_right;
@@ -3667,18 +3678,18 @@ generate_sound_sample(Sound_Samples *destination)
    destination->sample_index++;
 }
 
-typedef struct
+struct cycle_clocks
 {
-   unsigned int cpu;
-   unsigned int sound;
-   unsigned int horizontal_sync;
-} Clocks;
+   u32 cpu;
+   u32 sound;
+   u32 horizontal_sync;
+};
 
 #define SOUND_PERIOD (CPU_HZ / SOUND_OUTPUT_HZ)
 #define HORIZONTAL_SYNC_PERIOD (CPU_HZ / HORIZONTAL_SYNC_HZ)
 
 static void
-cpu_tick(Clocks *clocks, Bitmap *bitmap, Monochrome_Color_Scheme scheme, Sound_Samples *sound)
+cpu_tick(struct cycle_clocks *clocks, struct pixel_bitmap *bitmap, enum monochrome_color_scheme scheme, struct sound_samples *sound)
 {
    if(!map.boot_complete && read_memory(0xFF50))
    {
@@ -3686,7 +3697,7 @@ cpu_tick(Clocks *clocks, Bitmap *bitmap, Monochrome_Color_Scheme scheme, Sound_S
    }
 
    handle_interrupts();
-   unsigned int cycles = fetch_and_execute();
+   u32 cycles = fetch_and_execute();
 
    clocks->cpu += cycles;
    clocks->sound += cycles;
@@ -3709,7 +3720,7 @@ cpu_tick(Clocks *clocks, Bitmap *bitmap, Monochrome_Color_Scheme scheme, Sound_S
    {
       clocks->horizontal_sync = 0;
 
-      unsigned char scanline = read_memory(0xFF44);
+      u8 scanline = read_memory(0xFF44);
       if(scanline < 144)
       {
          render_vram_scanline(bitmap, scheme, scanline);

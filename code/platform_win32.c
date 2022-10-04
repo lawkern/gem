@@ -15,10 +15,10 @@
 static bool win32_global_is_running;
 static bool win32_global_is_paused;
 static LARGE_INTEGER win32_global_counts_per_second;
-static Monochrome_Color_Scheme win32_global_color_scheme;
+static enum monochrome_color_scheme win32_global_color_scheme;
 
-static Memory_Arena *win32_global_arena;
-static Bitmap *win32_global_bitmap;
+static struct memory_arena *win32_global_arena;
+static struct pixel_bitmap *win32_global_bitmap;
 static BITMAPINFO *win32_global_bitmap_info;
 
 static HMENU win32_global_menu;
@@ -73,7 +73,7 @@ PLATFORM_FREE_FILE(platform_free_file)
 static
 PLATFORM_LOAD_FILE(platform_load_file)
 {
-   Platform_File result = {0};
+   struct platform_file result = {0};
 
    WIN32_FIND_DATAA file_data;
    HANDLE find_file = FindFirstFileA(file_path, &file_data);
@@ -120,7 +120,7 @@ win32_allocate(SIZE_T size)
 }
 
 static void
-win32_load_cartridge(Memory_Arena *arena, HWND window, char *file_path)
+win32_load_cartridge(struct memory_arena *arena, HWND window, char *file_path)
 {
    load_cartridge(arena, file_path);
 
@@ -134,7 +134,7 @@ win32_load_cartridge(Memory_Arena *arena, HWND window, char *file_path)
 }
 
 static void
-win32_unload_cartridge(Memory_Arena *arena, HWND window)
+win32_unload_cartridge(struct memory_arena *arena, HWND window)
 {
    unload_cartridge(arena);
 
@@ -145,7 +145,7 @@ win32_unload_cartridge(Memory_Arena *arena, HWND window)
 }
 
 static void
-win32_open_file_dialog(Memory_Arena *arena, HWND window)
+win32_open_file_dialog(struct memory_arena *arena, HWND window)
 {
    // TODO(law): We want something better than MAX_PATH here.
    char file_name[MAX_PATH] = "";
@@ -180,10 +180,10 @@ win32_toggle_fullscreen(HWND window)
       if(GetWindowPlacement(window, &win32_global_previous_window_placement) &&
          GetMonitorInfo(MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY), &monitor_info))
       {
-         int x = monitor_info.rcMonitor.left;
-         int y = monitor_info.rcMonitor.top;
-         int width = monitor_info.rcMonitor.right - monitor_info.rcMonitor.left;
-         int height = monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top;
+         s32 x = monitor_info.rcMonitor.left;
+         s32 y = monitor_info.rcMonitor.top;
+         s32 width = monitor_info.rcMonitor.right - monitor_info.rcMonitor.left;
+         s32 height = monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top;
 
          SetWindowLong(window, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
          SetWindowPos(window, HWND_TOP, x, y, width, height, SWP_NOOWNERZORDER|SWP_FRAMECHANGED);
@@ -216,10 +216,10 @@ win32_is_fullscreen(HWND window)
    return(result);
 }
 
-static unsigned int
+static u32
 win32_get_toolbar_height(HWND window)
 {
-   unsigned int result = 0;
+   u32 result = 0;
 
    // TODO(law): Determine if this query is too slow to process every frame.
 
@@ -237,10 +237,10 @@ win32_get_toolbar_height(HWND window)
    return(result);
 }
 
-static unsigned int
+static u32
 win32_get_status_height(HWND window)
 {
-   unsigned int result = 0;
+   u32 result = 0;
 
    // TODO(law): Determine if this query is too slow to process every frame.
    HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
@@ -256,7 +256,7 @@ win32_get_status_height(HWND window)
 }
 
 static void
-win32_set_resolution_scale(HWND window, unsigned int scale)
+win32_set_resolution_scale(HWND window, u32 scale)
 {
    // NOTE(law): Prevent updating the resolution if the window is currently in
    // fullscreen mode.
@@ -269,13 +269,13 @@ win32_set_resolution_scale(HWND window, unsigned int scale)
       window_rect.right  = RESOLUTION_BASE_WIDTH  << scale;
       AdjustWindowRect(&window_rect, window_style, true);
 
-      unsigned int window_width  = window_rect.right - window_rect.left;
-      unsigned int window_height = window_rect.bottom - window_rect.top;
+      u32 window_width  = window_rect.right - window_rect.left;
+      u32 window_height = window_rect.bottom - window_rect.top;
 
-      unsigned int toolbar_height = win32_get_toolbar_height(window);
+      u32 toolbar_height = win32_get_toolbar_height(window);
       window_height += toolbar_height;
 
-      unsigned int status_height = win32_get_status_height(window);
+      u32 status_height = win32_get_status_height(window);
       window_height += status_height;
 
       SetWindowPos(window, 0, 0, 0, window_width, window_height, SWP_NOMOVE);
@@ -283,27 +283,27 @@ win32_set_resolution_scale(HWND window, unsigned int scale)
 }
 
 static void
-win32_display_bitmap(Bitmap bitmap, HWND window, HDC device_context)
+win32_display_bitmap(struct pixel_bitmap bitmap, HWND window, HDC device_context)
 {
    RECT client_rect;
    GetClientRect(window, &client_rect);
 
-   int client_width = client_rect.right - client_rect.left;
-   int client_height = client_rect.bottom - client_rect.top;
+   s32 client_width = client_rect.right - client_rect.left;
+   s32 client_height = client_rect.bottom - client_rect.top;
 
-   unsigned int toolbar_height = win32_get_toolbar_height(window);
+   u32 toolbar_height = win32_get_toolbar_height(window);
    client_height -= toolbar_height;
 
-   unsigned int status_height = win32_get_status_height(window);
+   u32 status_height = win32_get_status_height(window);
    client_height -= status_height;
 
    float client_aspect_ratio = (float)client_width / (float)client_height;
    float target_aspect_ratio = (float)RESOLUTION_BASE_WIDTH / (float)RESOLUTION_BASE_HEIGHT;
 
-   int target_width  = client_width;
-   int target_height = client_height;
-   int gutter_width  = 0;
-   int gutter_height = 0;
+   s32 target_width  = client_width;
+   s32 target_height = client_height;
+   s32 gutter_width  = 0;
+   s32 gutter_height = 0;
 
    if(client_aspect_ratio > target_aspect_ratio)
    {
@@ -336,15 +336,15 @@ win32_display_bitmap(Bitmap bitmap, HWND window, HDC device_context)
                  bitmap.memory, win32_global_bitmap_info, DIB_RGB_COLORS, SRCCOPY);
 }
 
-typedef struct
+struct win32_sound_output
 {
    DWORD index;
    DWORD buffer_size;
    LPDIRECTSOUNDBUFFER buffer;
-} Win32_Sound_Output;
+};
 
 static void
-win32_clear_sound_buffer(Win32_Sound_Output *output)
+win32_clear_sound_buffer(struct win32_sound_output *output)
 {
    VOID *region1;
    VOID *region2;
@@ -358,13 +358,13 @@ win32_clear_sound_buffer(Win32_Sound_Output *output)
 
    output->index = 0;
 
-   unsigned char *destination = (unsigned char *)region1;
+   u8 *destination = (u8 *)region1;
    for(DWORD index = 0; index < size1; ++index)
    {
       *destination++ = 0;
    }
 
-   destination = (unsigned char *)region2;
+   destination = (u8 *)region2;
    for(DWORD index = 0; index < size2; ++index)
    {
       *destination++ = 0;
@@ -378,9 +378,9 @@ win32_clear_sound_buffer(Win32_Sound_Output *output)
 }
 
 static void
-win32_initialize_sound(Win32_Sound_Output *output, HWND window)
+win32_initialize_sound(struct win32_sound_output *output, HWND window)
 {
-   ZeroMemory(output, sizeof(Win32_Sound_Output));
+   ZeroMemory(output, sizeof(*output));
 
    HMODULE library = LoadLibraryA("dsound.dll");
    if(!library)
@@ -464,7 +464,7 @@ win32_initialize_sound(Win32_Sound_Output *output, HWND window)
 }
 
 static DWORD
-win32_get_sound_write_size(Win32_Sound_Output *output)
+win32_get_sound_write_size(struct win32_sound_output *output)
 {
    DWORD result = 0;
 
@@ -493,7 +493,7 @@ win32_get_sound_write_size(Win32_Sound_Output *output)
 }
 
 static void
-win32_output_sound_samples(Win32_Sound_Output *output, signed short *samples, DWORD write_size)
+win32_output_sound_samples(struct win32_sound_output *output, s16 *samples, DWORD write_size)
 {
    VOID *region1;
    VOID *region2;
@@ -507,8 +507,8 @@ win32_output_sound_samples(Win32_Sound_Output *output, signed short *samples, DW
       return;
    }
 
-   signed short *source = samples;
-   signed short *destination = (signed short *)region1;
+   s16 *source = samples;
+   s16 *destination = (s16 *)region1;
 
    DWORD sample_count = size1 / SOUND_OUTPUT_BYTES_PER_SAMPLE;
    for(DWORD sample_index = 0; sample_index < sample_count; ++sample_index)
@@ -519,7 +519,7 @@ win32_output_sound_samples(Win32_Sound_Output *output, signed short *samples, DW
       output->index += SOUND_OUTPUT_BYTES_PER_SAMPLE;
    }
 
-   destination = (signed short *)region2;
+   destination = (s16 *)region2;
 
    sample_count = size2 / SOUND_OUTPUT_BYTES_PER_SAMPLE;
    for(DWORD sample_index = 0; sample_index < sample_count; ++sample_index)
@@ -868,7 +868,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          PAINTSTRUCT paint;
          HDC device_context = BeginPaint(window, &paint);
 
-         Bitmap bitmap = *win32_global_bitmap;
+         struct pixel_bitmap bitmap = *win32_global_bitmap;
          win32_display_bitmap(bitmap, window, device_context);
 
          ReleaseDC(window, device_context);
@@ -928,7 +928,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    }
 
    // NOTE(law): Perform general dynamic allocations up front.
-   Memory_Arena arena = {0};
+   struct memory_arena arena = {0};
    arena.size = MEBIBYTES(64);
    arena.base_address = win32_allocate(arena.size);
    if(!arena.base_address)
@@ -940,9 +940,9 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    win32_global_arena = &arena;
 
    // NOTE(law) Set up the rendering bitmap.
-   Bitmap bitmap = {RESOLUTION_BASE_WIDTH, RESOLUTION_BASE_HEIGHT};
+   struct pixel_bitmap bitmap = {RESOLUTION_BASE_WIDTH, RESOLUTION_BASE_HEIGHT};
 
-   SIZE_T bytes_per_pixel = sizeof(unsigned int);
+   SIZE_T bytes_per_pixel = sizeof(u32);
    SIZE_T bitmap_size = bitmap.width * bitmap.height * bytes_per_pixel;
    bitmap.memory = win32_allocate(bitmap_size);
    if(!bitmap.memory)
@@ -954,7 +954,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    BITMAPINFOHEADER bitmap_header = {0};
    bitmap_header.biSize = sizeof(BITMAPINFOHEADER);
    bitmap_header.biWidth = bitmap.width;
-   bitmap_header.biHeight = -(signed int)bitmap.height; // NOTE(law): Negative will indicate a top-down bitmap.
+   bitmap_header.biHeight = -(s32)bitmap.height; // NOTE(law): Negative will indicate a top-down bitmap.
    bitmap_header.biPlanes = 1;
    bitmap_header.biBitCount = 32;
    bitmap_header.biCompression = BI_RGB;
@@ -976,10 +976,10 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    win32_set_resolution_scale(window, 1);
 
    // NOTE(law): Initialize sound.
-   Win32_Sound_Output sound_output;
+   struct win32_sound_output sound_output;
    win32_initialize_sound(&sound_output, window);
 
-   Sound_Samples sound = {0};
+   struct sound_samples sound = {0};
    sound.size = sound_output.buffer_size;
    sound.samples = win32_allocate(sound.size);
    if(!sound.samples)
@@ -994,12 +994,12 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
    float frame_seconds_elapsed = 0;
    float target_seconds_per_frame = 1.0f / VERTICAL_SYNC_HZ;
-   unsigned int target_cycles_per_frame = (unsigned int)(CPU_HZ / VERTICAL_SYNC_HZ);
+   u32 target_cycles_per_frame = (u32)(CPU_HZ / VERTICAL_SYNC_HZ);
 
-   unsigned int clear_color = get_display_off_color(win32_global_color_scheme);
+   u32 clear_color = get_display_off_color(win32_global_color_scheme);
    clear(&bitmap, clear_color);
 
-   Clocks clocks = {0};
+   struct cycle_clocks clocks = {0};
 
    LARGE_INTEGER frame_start_count;
    QueryPerformanceCounter(&frame_start_count);
@@ -1035,7 +1035,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
 #if 0
          // NOTE(law): Just loop over VRAM and display the contents as tiles.
-         static int tile_offset = 0;
+         static u32 tile_offset = 0;
          dump_vram(&bitmap, tile_offset++, PALETTE_DATA_BG, win32_global_color_scheme);
 
          if(tile_offset >= 512 || register_pc == 0)
@@ -1048,7 +1048,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
          DWORD sound_write_size = win32_get_sound_write_size(&sound_output);
          if(sound_write_size > (sound.sample_index * SOUND_OUTPUT_BYTES_PER_SAMPLE))
          {
-            unsigned int remaining_samples = (sound_write_size / SOUND_OUTPUT_BYTES_PER_SAMPLE) - sound.sample_index;
+            u32 remaining_samples = (sound_write_size / SOUND_OUTPUT_BYTES_PER_SAMPLE) - sound.sample_index;
 #if DEBUG_SINE_WAVE
             generate_debug_samples(&sound, remaining_samples);
 #else
