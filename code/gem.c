@@ -14,17 +14,6 @@
 #define VERTICAL_SYNC_HZ 59.73f
 #define HORIZONTAL_SYNC_HZ 9198
 
-#define GEM_BASE_RESOLUTION_WIDTH 160
-#define GEM_BASE_RESOLUTION_HEIGHT 144
-
-#define TILE_PIXEL_DIM 8
-#define TILES_PER_SCREEN_WIDTH  (GEM_BASE_RESOLUTION_WIDTH  / TILE_PIXEL_DIM)
-#define TILES_PER_SCREEN_HEIGHT (GEM_BASE_RESOLUTION_HEIGHT / TILE_PIXEL_DIM)
-
-#define VRAM_TILE_BLOCK_0 0x8000
-#define VRAM_TILE_BLOCK_1 0x8800
-#define VRAM_TILE_BLOCK_2 0x9000
-
 static unsigned char register_a;
 static unsigned char register_b;
 static unsigned char register_c;
@@ -40,13 +29,6 @@ static unsigned short register_sp;
 static bool halt;
 static bool stop;
 static bool ime;
-
-typedef struct
-{
-   unsigned int width;
-   unsigned int height;
-   unsigned int *memory;
-} Platform_Bitmap;
 
 typedef struct
 {
@@ -224,8 +206,9 @@ read_memory(unsigned short address)
 
    unsigned char result = 0x00;
 
-   if(address < 0x4000) // NOTE(law): ROM bank 00.
+   if(address <= 0x3FFF)
    {
+      // NOTE(law): ROM bank 00 (0000 - 3FFF).
       if(map.boot_complete || address >= 0x100)
       {
          unsigned char bank_index = 0;
@@ -244,22 +227,25 @@ read_memory(unsigned short address)
          result = boot_rom[address];
       }
    }
-   else if(address < 0x8000) // NOTE(law): ROM bank 01-NN.
+   else if(address <= 0x7FFF)
    {
+      // NOTE(law): ROM bank 01-NN (4000 - 7FFF).
       unsigned int selected_rom_index = MAXIMUM(map.rom_selected_index, 1);
       result = map.rom_banks[selected_rom_index].memory[address - 0x4000];
    }
-   else if(address < 0xA000) // NOTE(law): VRAM
+   else if(address <= 0x9FFF)
    {
+      // NOTE(law): VRAM (8000 - 9FFF).
       result = map.vram.memory[address - 0x8000];
    }
-   else if(address < 0xC000) // NOTE(law): RAM banks
+   else if(address <= 0xBFFF)
    {
+      // NOTE(law): External RAM banks (A000 - BFFF).
       if(map.ram_enabled)
       {
-         if((map.mbc == MEMORY_BANK_CONTROLLER_MBC2) && (address >= 0xA200))
+         if(map.mbc == MEMORY_BANK_CONTROLLER_MBC2 && address >= 0xA200)
          {
-            // NOTE(law): 0xA200-BFFF mirrors 0xA000-A1FF on MBC2 cartridges.
+            // NOTE(law): A200 - BFFF mirrors 0xA000-A1FF on MBC2 cartridges.
             address -= 0x200;
          }
 
@@ -270,30 +256,37 @@ read_memory(unsigned short address)
          result = 0xFF;
       }
    }
-   else if(address < 0xE000) // NOTE(law): WRAM
+   else if(address <= 0xDFFF)
    {
+      // NOTE(law): WRAM (C000 - CFFF, D000 - DFFF).
       result = map.wram.memory[address - 0xC000];
    }
-   else if(address < 0xFE00) // NOTE(law): Mirror of C000-DDFF
+   else if(address <= 0xFDFF)
    {
+      // NOTE(law): Mirror of C000-DDFF (E000 - FDFF).
       result = map.wram.memory[address - 0xC000 - 0x2000];
    }
-   else if(address < 0xFEA0) // NOTE(law): OAM
+   else if(address <= 0xFE9F)
    {
+      // NOTE(law): OAM sprite attribute table (FE00 - FE9F).
       result = map.oam.memory[address - 0xFE00];
    }
-   else if(address < 0xFF00) // NOTE(law): Not Usable
+   else if(address <= 0xFEFF)
    {
+      // NOTE(law): Not usable (FFA0 - FEFF)
+
       // TODO(law): Accessing this address range is not permitted. Implement the
       // weird hardware-specific behavior, like OAM corruption.
       result = 0xFF;
    }
-   else if(address < 0xFF80) // NOTE(law): OAM
+   else if(address <= 0xFF7F)
    {
+      // NOTE(law): I/O registers (FF00 - FF7F).
       result = map.io.memory[address - 0xFF00];
    }
-   else if(address < 0xFFFF) // NOTE(law): OAM
+   else if(address <= 0xFFFE)
    {
+      // NOTE(law): HRAM (FF80 - FFFE)
       result = map.hram.memory[address - 0xFF80];
    }
    else if(address == 0xFFFF)
@@ -309,24 +302,27 @@ write_memory(unsigned short address, char value)
 {
    // TODO(law): Condense this down once everything is working.
 
-   if((map.mbc == MEMORY_BANK_CONTROLLER_MBC2) && (address < 0x4000))
+   if(map.mbc == MEMORY_BANK_CONTROLLER_MBC2 && address <= 0x3999)
    {
-      unsigned char bit8 = (address >> 8) & 0x1;
-      if(bit8)
+      if((address >> 8) & 0x1)
       {
+         // NOTE(law): Select MBC2 ROM bank number.
          map.rom_selected_index = MAXIMUM(value & 0x0F, 1);
       }
-      else // NOTE(law): Enable MBC2 RAM
+      else
       {
+         // NOTE(law): Enable MBC2 RAM.
          map.ram_enabled = ((value >> 4) == 0xA);
       }
    }
-   if(address <= 0x1FFF) // NOTE(law): Enable RAM
+   else if(address <= 0x1FFF)
    {
+      // NOTE(law): Enable RAM (0 - 1FFF).
       map.ram_enabled = ((value >> 4) == 0xA);
    }
-   else if(address < 0x4000) // NOTE(law): Select ROM bank
+   else if(address <= 0x3FFF)
    {
+      // NOTE(law): Select ROM bank (2000 - 3FFF).
       map.rom_selected_index = MAXIMUM(value & map.rom_bank_mask, 1);
       if(map.banking_mode == MEMORY_BANKING_MODE_ADVANCED)
       {
@@ -337,8 +333,9 @@ write_memory(unsigned short address, char value)
          }
       }
    }
-   else if(address < 0x6000) // NOTE(law): Select RAM bank/upper ROM bank bits
+   else if(address <= 0x5FFF)
    {
+      // NOTE(law): Select RAM bank/upper ROM bank bits (4000 - 5FFF).
       value &= 0x3;
       if(map.banking_mode == MEMORY_BANKING_MODE_SIMPLE)
       {
@@ -358,19 +355,24 @@ write_memory(unsigned short address, char value)
          }
       }
    }
-   else if(address < 0x8000) // NOTE(law): Select banking mode
+   else if(address <= 0x7FFF)
    {
+      // NOTE(law): Select banking mode (6000 - 7FFF).
+
       // TODO(law): Determine if the value MUST be 0 or 1, or if it can be
       // truncated.
 
       map.banking_mode = (value & 0x1);
    }
-   else if(address < 0xA000) // NOTE(law): VRAM
+   else if(address <= 0x9FFF)
    {
+      // NOTE(law): VRAM (8000 - 9FFF).
       map.vram.memory[address - 0x8000] = value;
    }
-   else if(address < 0xC000) // NOTE(law): RAM banks
+   else if(address <= 0xBFFF)
    {
+      // NOTE(law): External RAM banks (A000 - BFFF).
+
       // TODO(law): Does writing to disabled RAM have an effect?
       if(map.ram_enabled)
       {
@@ -383,29 +385,36 @@ write_memory(unsigned short address, char value)
          map.ram_banks[map.ram_selected_index].memory[address - 0xA000] = value;
       }
    }
-   else if(address < 0xE000) // NOTE(law): WRAM
+   else if(address <= 0xDFFF)
    {
+      // NOTE(law): WRAM (C000 - CFFF, D000 - DFFF).
       map.wram.memory[address - 0xC000] = value;
    }
-   else if(address < 0xFE00) // NOTE(law): Mirror of C000-DDFF
+   else if(address <= 0xFDFF)
    {
+      // NOTE(law): Mirror of C000-DDFF (E000 - FDFF).
       map.wram.memory[address -0xC000 - 0x2000] = value;
    }
-   else if(address < 0xFEA0) // NOTE(law): OAM
+   else if(address <= 0xFE9F)
    {
+      // NOTE(law): OAM sprite attribute table (FE00 - FE9F).
       map.oam.memory[address - 0xFE00] = value;
    }
-   else if(address < 0xFF00) // NOTE(law): Not Usable
+   else if(address <= 0xFEFF)
    {
+      // NOTE(law): Not usable (FFA0 - FEFF)
+
       // TODO(law): Confirm what writes to this area are supposed to do.
       assert(!"WRITE TO UNUSABLE MEMORY LOCATION.");
    }
-   else if(address < 0xFF80) // NOTE(law): OAM
+   else if(address <= 0xFF7F)
    {
+      // NOTE(law): I/O registers (FF00 - FF7F).
       map.io.memory[address - 0xFF00] = value;
    }
-   else if(address < 0xFFFF) // NOTE(law): OAM
+   else if(address <= 0xFFFE)
    {
+      // NOTE(law): HRAM (FF80 - FFFE)
       map.hram.memory[address - 0xFF80] = value;
    }
    else if(address == 0xFFFF)
@@ -3249,16 +3258,27 @@ handle_interrupts()
    }
 }
 
-unsigned int monochrome_color_schemes[][5] =
-{
-   {0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820, 0xFFACC480 /*0xFF8C7410*/}, // DMG
-   {0xFFE0DBCD, 0xFFA89F94, 0xFF706B66, 0xFF2B2B26, 0xFFBDB890}, // MGB
-   {0xFF65F2BA, 0xFF39C28C, 0xFF30B37F, 0xFF0E7F54, 0xFFBDB890}, // LIGHT
-};
+#define RESOLUTION_BASE_WIDTH 160
+#define RESOLUTION_BASE_HEIGHT 144
+
+#define TILE_PIXEL_DIM 8
+#define TILES_PER_SCREEN_WIDTH  (RESOLUTION_BASE_WIDTH  / TILE_PIXEL_DIM)
+#define TILES_PER_SCREEN_HEIGHT (RESOLUTION_BASE_HEIGHT / TILE_PIXEL_DIM)
+
+#define VRAM_TILE_BLOCK_0 0x8000
+#define VRAM_TILE_BLOCK_1 0x8800
+#define VRAM_TILE_BLOCK_2 0x9000
 
 #define PALETTE_DATA_BG   0xFF47
 #define PALETTE_DATA_OBJ0 0xFF48
 #define PALETTE_DATA_OBJ1 0xFF49
+
+typedef struct
+{
+   unsigned int width;
+   unsigned int height;
+   unsigned int *memory;
+} Bitmap;
 
 typedef enum
 {
@@ -3268,6 +3288,13 @@ typedef enum
 
    MONOCHROME_COLOR_OPTION_COUNT,
 } Monochrome_Color_Scheme;
+
+unsigned int monochrome_color_schemes[][5] =
+{
+   {0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820, 0xFFACC480}, // DMG
+   {0xFFE0DBCD, 0xFFA89F94, 0xFF706B66, 0xFF2B2B26, 0xFFBDB890}, // MGB
+   {0xFF65F2BA, 0xFF39C28C, 0xFF30B37F, 0xFF0E7F54, 0xFFBDB890}, // LIGHT
+};
 
 static unsigned int
 get_display_off_color(Monochrome_Color_Scheme color_scheme)
@@ -3291,7 +3318,7 @@ get_palette(unsigned int *palette, unsigned short address, Monochrome_Color_Sche
 }
 
 static void
-clear(Platform_Bitmap *bitmap, unsigned int color)
+clear(Bitmap *bitmap, unsigned int color)
 {
    for(unsigned int y = 0; y < bitmap->height; ++y)
    {
@@ -3303,44 +3330,52 @@ clear(Platform_Bitmap *bitmap, unsigned int color)
 }
 
 static void
-dump_vram(Platform_Bitmap *bitmap, unsigned int tile_offset,
-             unsigned short palette_address, Monochrome_Color_Scheme scheme)
+clear_scanline(Bitmap *bitmap, unsigned int scanline, unsigned int color)
+{
+   for(unsigned int x = 0; x < bitmap->width; ++x)
+   {
+      bitmap->memory[(bitmap->width * scanline) + x] = color;
+   }
+}
+
+static void
+render_vram_scanline(Bitmap *bitmap, Monochrome_Color_Scheme scheme, unsigned int scanline)
 {
    unsigned int palette[4];
+   unsigned short palette_address = PALETTE_DATA_BG;
    get_palette(palette, palette_address, scheme);
 
-   clear(bitmap, palette[0]);
+   clear_scanline(bitmap, scanline, palette[0]);
 
+   unsigned int tile_offset = 0;
    unsigned char *tiles = map.vram.memory + (tile_offset * 16);
-   for(unsigned int tile_y = 0; tile_y < TILES_PER_SCREEN_HEIGHT; ++tile_y)
+
+   unsigned int tile_y = scanline / TILE_PIXEL_DIM;
+   unsigned int pixel_y = scanline % TILE_PIXEL_DIM;
+
+   for(unsigned int tile_x = 0; tile_x < TILES_PER_SCREEN_WIDTH; ++tile_x)
    {
-      for(unsigned int tile_x = 0; tile_x < TILES_PER_SCREEN_WIDTH; ++tile_x)
+      unsigned int tile_index = (TILES_PER_SCREEN_WIDTH * tile_y) + tile_x;
+      unsigned char *tile = tiles + (2 * tile_index * TILE_PIXEL_DIM);
+
+      unsigned char byte0 = tile[(2 * pixel_y) + 0];
+      unsigned char byte1 = tile[(2 * pixel_y) + 1];
+
+      for(unsigned int pixel_x = 0; pixel_x < TILE_PIXEL_DIM; ++pixel_x)
       {
-         unsigned int tile_index = (TILES_PER_SCREEN_WIDTH * tile_y) + tile_x;
-         unsigned char *tile = tiles + (2 * tile_index * TILE_PIXEL_DIM);
+         unsigned int bit_offset = TILE_PIXEL_DIM - 1 - pixel_x;
+         unsigned char low_bit  = (byte0 >> bit_offset) & 0x1;
+         unsigned char high_bit = (byte1 >> bit_offset) & 0x1;
 
-         for(unsigned int pixel_y = 0; pixel_y < TILE_PIXEL_DIM; ++pixel_y)
+         unsigned int color_index = (high_bit << 1) | low_bit;
+
+         unsigned int bitmap_y = (tile_y * TILE_PIXEL_DIM) + pixel_y;
+         unsigned int bitmap_x = (tile_x * TILE_PIXEL_DIM) + pixel_x;
+
+         bool is_object = (palette_address == PALETTE_DATA_OBJ1 || palette_address == PALETTE_DATA_OBJ0);
+         if(!(is_object && color_index == 0))
          {
-            unsigned char byte0 = tile[(2 * pixel_y) + 0];
-            unsigned char byte1 = tile[(2 * pixel_y) + 1];
-
-            for(unsigned int pixel_x = 0; pixel_x < TILE_PIXEL_DIM; ++pixel_x)
-            {
-               unsigned int bit_offset = TILE_PIXEL_DIM - 1 - pixel_x;
-               unsigned char low_bit  = (byte0 >> bit_offset) & 0x1;
-               unsigned char high_bit = (byte1 >> bit_offset) & 0x1;
-
-               unsigned int color_index = (high_bit << 1) | low_bit;
-
-               unsigned int bitmap_y = (tile_y * TILE_PIXEL_DIM) + pixel_y;
-               unsigned int bitmap_x = (tile_x * TILE_PIXEL_DIM) + pixel_x;
-
-               bool is_object = (palette_address == PALETTE_DATA_OBJ1 || palette_address == PALETTE_DATA_OBJ0);
-               if(!(is_object && color_index == 0))
-               {
-                  bitmap->memory[(bitmap->width * bitmap_y) + bitmap_x] = palette[color_index];
-               }
-            }
+            bitmap->memory[(bitmap->width * bitmap_y) + bitmap_x] = palette[color_index];
          }
       }
    }
@@ -3643,7 +3678,7 @@ typedef struct
 #define HORIZONTAL_SYNC_PERIOD (CPU_HZ / HORIZONTAL_SYNC_HZ)
 
 static void
-cpu_tick(Clocks *clocks, Sound_Samples *sound)
+cpu_tick(Clocks *clocks, Bitmap *bitmap, Monochrome_Color_Scheme scheme, Sound_Samples *sound)
 {
    if(!map.boot_complete && read_memory(0xFF50))
    {
@@ -3674,11 +3709,16 @@ cpu_tick(Clocks *clocks, Sound_Samples *sound)
    {
       clocks->horizontal_sync = 0;
 
-      unsigned char current_horizontal_line = read_memory(0xFF44);
-      if(++current_horizontal_line > 153)
+      unsigned char scanline = read_memory(0xFF44);
+      if(scanline < 144)
       {
-         current_horizontal_line = 0;
+         render_vram_scanline(bitmap, scheme, scanline);
       }
-      write_memory(0xFF44, current_horizontal_line);
+
+      if(++scanline > 153)
+      {
+         scanline = 0;
+      }
+      write_memory(0xFF44, scanline);
    }
 }

@@ -401,7 +401,7 @@ main(int argument_count, char **arguments)
    arena.base_address = mmap(0, arena.size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
 
    // NOTE(law) Set up the rendering bitmap.
-   Platform_Bitmap bitmap = {GEM_BASE_RESOLUTION_WIDTH, GEM_BASE_RESOLUTION_HEIGHT};
+   Platform_Bitmap bitmap = {RESOLUTION_BASE_WIDTH, RESOLUTION_BASE_HEIGHT};
 
    size_t bytes_per_pixel = sizeof(unsigned int);
    size_t bitmap_size = bitmap.width * bitmap.height * bytes_per_pixel;

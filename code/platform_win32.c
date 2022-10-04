@@ -18,7 +18,7 @@ static LARGE_INTEGER win32_global_counts_per_second;
 static Monochrome_Color_Scheme win32_global_color_scheme;
 
 static Memory_Arena *win32_global_arena;
-static Platform_Bitmap *win32_global_bitmap;
+static Bitmap *win32_global_bitmap;
 static BITMAPINFO *win32_global_bitmap_info;
 
 static HMENU win32_global_menu;
@@ -147,7 +147,6 @@ win32_unload_cartridge(Memory_Arena *arena, HWND window)
 static void
 win32_open_file_dialog(Memory_Arena *arena, HWND window)
 {
-
    // TODO(law): We want something better than MAX_PATH here.
    char file_name[MAX_PATH] = "";
 
@@ -266,8 +265,8 @@ win32_set_resolution_scale(HWND window, unsigned int scale)
       DWORD window_style = WS_OVERLAPPEDWINDOW;
 
       RECT window_rect = {0};
-      window_rect.bottom = GEM_BASE_RESOLUTION_HEIGHT << scale;
-      window_rect.right  = GEM_BASE_RESOLUTION_WIDTH  << scale;
+      window_rect.bottom = RESOLUTION_BASE_HEIGHT << scale;
+      window_rect.right  = RESOLUTION_BASE_WIDTH  << scale;
       AdjustWindowRect(&window_rect, window_style, true);
 
       unsigned int window_width  = window_rect.right - window_rect.left;
@@ -284,7 +283,7 @@ win32_set_resolution_scale(HWND window, unsigned int scale)
 }
 
 static void
-win32_display_bitmap(Platform_Bitmap bitmap, HWND window, HDC device_context)
+win32_display_bitmap(Bitmap bitmap, HWND window, HDC device_context)
 {
    RECT client_rect;
    GetClientRect(window, &client_rect);
@@ -299,7 +298,7 @@ win32_display_bitmap(Platform_Bitmap bitmap, HWND window, HDC device_context)
    client_height -= status_height;
 
    float client_aspect_ratio = (float)client_width / (float)client_height;
-   float target_aspect_ratio = (float)GEM_BASE_RESOLUTION_WIDTH / (float)GEM_BASE_RESOLUTION_HEIGHT;
+   float target_aspect_ratio = (float)RESOLUTION_BASE_WIDTH / (float)RESOLUTION_BASE_HEIGHT;
 
    int target_width  = client_width;
    int target_height = client_height;
@@ -869,7 +868,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          PAINTSTRUCT paint;
          HDC device_context = BeginPaint(window, &paint);
 
-         Platform_Bitmap bitmap = *win32_global_bitmap;
+         Bitmap bitmap = *win32_global_bitmap;
          win32_display_bitmap(bitmap, window, device_context);
 
          ReleaseDC(window, device_context);
@@ -941,7 +940,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    win32_global_arena = &arena;
 
    // NOTE(law) Set up the rendering bitmap.
-   Platform_Bitmap bitmap = {GEM_BASE_RESOLUTION_WIDTH, GEM_BASE_RESOLUTION_HEIGHT};
+   Bitmap bitmap = {RESOLUTION_BASE_WIDTH, RESOLUTION_BASE_HEIGHT};
 
    SIZE_T bytes_per_pixel = sizeof(unsigned int);
    SIZE_T bitmap_size = bitmap.width * bitmap.height * bytes_per_pixel;
@@ -1031,9 +1030,10 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
          clocks.cpu %= target_cycles_per_frame;
          while(clocks.cpu < target_cycles_per_frame)
          {
-            cpu_tick(&clocks, &sound);
+            cpu_tick(&clocks, &bitmap, win32_global_color_scheme, &sound);
          }
 
+#if 0
          // NOTE(law): Just loop over VRAM and display the contents as tiles.
          static int tile_offset = 0;
          dump_vram(&bitmap, tile_offset++, PALETTE_DATA_BG, win32_global_color_scheme);
@@ -1042,6 +1042,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
          {
             tile_offset = 0;
          }
+#endif
 
          // NOTE(law): Output sound.
          DWORD sound_write_size = win32_get_sound_write_size(&sound_output);
