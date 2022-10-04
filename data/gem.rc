@@ -1,33 +1,36 @@
 #include <windows.h>
 
 WIN32_ICON ICON "gem.ico"
-WIN32_TOOLBAR_BUTTONS_BITMAP BITMAP "toolbar_buttons24.bmp"
+WIN32_TOOLBAR_BUTTONS_BITMAP BITMAP "toolbar_buttons.bmp"
 
-1 VERSIONINFO
-FILEVERSION 0,0,0,1
-PRODUCTVERSION 0,0,0,1
-FILEFLAGS VS_FF_PRERELEASE
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 0, 0, 0, 1
+PRODUCTVERSION 0, 0, 0, 1
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS VS_FF_PRERELEASE|VS_FF_DEBUG
 FILEOS VOS_NT_WINDOWS32
 FILETYPE VFT_APP
-BEGIN
-        BLOCK "StringFileInfo"
-        BEGIN
-                BLOCK "040904E4"
-                BEGIN
-                        VALUE "FileVersion", "0.0.0.1"
-                        VALUE "InternalName", "gem"
-                        VALUE "FileDescription", "Gem - Game Boy emulator"
-                        VALUE "LegalCopyright", "Copyright (C) 2022"
-                        VALUE "OriginalFilename", "gem.exe"
-                        VALUE "ProductName", "GEM"
-                        VALUE "ProductVersion", "0.0.0.1"
-                END
-        END
+FILESUBTYPE 0
+{
+   BLOCK "StringFileInfo"
+   {
+      BLOCK "040904E4"
+      {
+         VALUE "CompanyName", "Lawrence D. Kern"
+         VALUE "FileDescription", "Gem - Game Boy emulator"
+         VALUE "FileVersion", "0.0.0.1"
+         VALUE "InternalName", "gem"
+         VALUE "LegalCopyright", "Copyright (C) 2022"
+         VALUE "OriginalFilename", "gem.exe"
+         VALUE "ProductName", "GEM"
+         VALUE "ProductVersion", "0.0.0.1"
+      }
+   }
 
-        BLOCK "VarFileInfo"
-        BEGIN
-                VALUE "Translation", 0x409, 1252
-        END
-END
+   BLOCK "VarFileInfo"
+   {
+      VALUE "Translation", 0x409, 1252
+   }
+}
 
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "gem.exe.manifest"
