@@ -72,12 +72,27 @@ PLATFORM_LOG(platform_log)
    OutputDebugStringA(message);
 }
 
+static void *
+win32_allocate(SIZE_T size)
+{
+   VOID *result = VirtualAlloc(0, size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+   return(result);
+}
+
+static void
+win32_free(VOID *memory)
+{
+   if(!VirtualFree(memory, 0, MEM_DECOMMIT|MEM_RELEASE))
+   {
+      platform_log("Failed to free virtual memory.\n");
+   }
+}
+
 static
 PLATFORM_FREE_FILE(platform_free_file)
 {
-   free(file->memory);
-   file->size = 0;
-   file->memory = 0;
+   win32_free(file->memory);
+   ZeroMemory(file, sizeof(*file));
 }
 
 static
@@ -95,7 +110,7 @@ PLATFORM_LOAD_FILE(platform_load_file)
    FindClose(find_file);
 
    size_t size = (file_data.nFileSizeHigh * (MAXDWORD + 1)) + file_data.nFileSizeLow;
-   result.memory = malloc(size);
+   result.memory = win32_allocate(size);
    if(!result.memory)
    {
       platform_log("ERROR: Failed to allocate memory for file \"%s\".\n", file_path);
@@ -119,13 +134,6 @@ PLATFORM_LOAD_FILE(platform_load_file)
    }
    CloseHandle(file);
 
-   return(result);
-}
-
-static void *
-win32_allocate(SIZE_T size)
-{
-   VOID *result = VirtualAlloc(0, size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
    return(result);
 }
 
