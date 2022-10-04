@@ -3293,31 +3293,40 @@ struct pixel_bitmap
 
 enum monochrome_color_scheme
 {
-   MONOCHROME_COLOR_OPTION_DMG,
-   MONOCHROME_COLOR_OPTION_MGB,
-   MONOCHROME_COLOR_OPTION_LIGHT,
+   MONOCHROME_COLOR_SCHEME_DMG,
+   MONOCHROME_COLOR_SCHEME_MGB,
+   MONOCHROME_COLOR_SCHEME_LIGHT,
 
-   MONOCHROME_COLOR_OPTION_COUNT,
+   MONOCHROME_COLOR_SCHEME_COUNT,
 };
 
 u32 monochrome_color_schemes[][5] =
 {
+   // NOTE(law): The value at index 4 of each color scheme is the color of the
+   // LCD when the display is disabled. It is not actually used by the palette.
+
    {0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820, 0xFFACC480}, // DMG
    {0xFFE0DBCD, 0xFFA89F94, 0xFF706B66, 0xFF2B2B26, 0xFFBDB890}, // MGB
    {0xFF65F2BA, 0xFF39C28C, 0xFF30B37F, 0xFF0E7F54, 0xFFBDB890}, // LIGHT
 };
 
+static enum monochrome_color_scheme gem_global_color_scheme;
+
 static u32
-get_display_off_color(enum monochrome_color_scheme color_scheme)
+get_display_off_color()
 {
+   enum monochrome_color_scheme color_scheme = gem_global_color_scheme;
+
    u32 result = monochrome_color_schemes[color_scheme][4];
    return(result);
 }
 
 static void
-get_palette(u32 *palette, u16 address, enum monochrome_color_scheme color_scheme)
+get_palette(u32 *palette, u16 address)
 {
-   assert(ARRAY_LENGTH(monochrome_color_schemes) == MONOCHROME_COLOR_OPTION_COUNT);
+   enum monochrome_color_scheme color_scheme = gem_global_color_scheme;
+
+   assert(ARRAY_LENGTH(monochrome_color_schemes) == MONOCHROME_COLOR_SCHEME_COUNT);
    u32 *colors = monochrome_color_schemes[color_scheme];
 
    u8 palette_data = read_memory(address);
@@ -3350,11 +3359,11 @@ clear_scanline(struct pixel_bitmap *bitmap, u32 scanline, u32 color)
 }
 
 static void
-render_vram_scanline(struct pixel_bitmap *bitmap, enum monochrome_color_scheme scheme, u32 scanline)
+render_vram_scanline(struct pixel_bitmap *bitmap, u32 scanline)
 {
    u32 palette[4];
    u16 palette_address = PALETTE_DATA_BG;
-   get_palette(palette, palette_address, scheme);
+   get_palette(palette, palette_address);
 
    clear_scanline(bitmap, scanline, palette[0]);
 
@@ -3689,7 +3698,7 @@ struct cycle_clocks
 #define HORIZONTAL_SYNC_PERIOD (CPU_HZ / HORIZONTAL_SYNC_HZ)
 
 static void
-cpu_tick(struct cycle_clocks *clocks, struct pixel_bitmap *bitmap, enum monochrome_color_scheme scheme, struct sound_samples *sound)
+cpu_tick(struct cycle_clocks *clocks, struct pixel_bitmap *bitmap, struct sound_samples *sound)
 {
    if(!map.boot_complete && read_memory(0xFF50))
    {
@@ -3723,7 +3732,7 @@ cpu_tick(struct cycle_clocks *clocks, struct pixel_bitmap *bitmap, enum monochro
       u8 scanline = read_memory(0xFF44);
       if(scanline < 144)
       {
-         render_vram_scanline(bitmap, scheme, scanline);
+         render_vram_scanline(bitmap, scanline);
       }
 
       if(++scanline > 153)

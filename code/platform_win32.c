@@ -15,7 +15,6 @@
 static bool win32_global_is_running;
 static bool win32_global_is_paused;
 static LARGE_INTEGER win32_global_counts_per_second;
-static enum monochrome_color_scheme win32_global_color_scheme;
 
 static struct memory_arena *win32_global_arena;
 static struct pixel_bitmap *win32_global_bitmap;
@@ -672,7 +671,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 
             case WIN32_MENU_VIEW_COLOR_DMG:
             {
-               win32_global_color_scheme = MONOCHROME_COLOR_OPTION_DMG;
+               gem_global_color_scheme = MONOCHROME_COLOR_SCHEME_DMG;
                CheckMenuRadioItem(win32_global_menu,
                                   WIN32_MENU_VIEW_COLOR_DMG,
                                   WIN32_MENU_VIEW_COLOR_LIGHT,
@@ -682,7 +681,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 
             case WIN32_MENU_VIEW_COLOR_MGB:
             {
-               win32_global_color_scheme = MONOCHROME_COLOR_OPTION_MGB;
+               gem_global_color_scheme = MONOCHROME_COLOR_SCHEME_MGB;
                CheckMenuRadioItem(win32_global_menu,
                                   WIN32_MENU_VIEW_COLOR_DMG,
                                   WIN32_MENU_VIEW_COLOR_LIGHT,
@@ -692,7 +691,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 
             case WIN32_MENU_VIEW_COLOR_LIGHT:
             {
-               win32_global_color_scheme = MONOCHROME_COLOR_OPTION_LIGHT;
+               gem_global_color_scheme = MONOCHROME_COLOR_SCHEME_LIGHT;
                CheckMenuRadioItem(win32_global_menu,
                                   WIN32_MENU_VIEW_COLOR_DMG,
                                   WIN32_MENU_VIEW_COLOR_LIGHT,
@@ -814,13 +813,13 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
             }
             else if(wparam == 'C')
             {
-               win32_global_color_scheme++;
-               if(win32_global_color_scheme >= MONOCHROME_COLOR_OPTION_COUNT)
+               gem_global_color_scheme++;
+               if(gem_global_color_scheme >= MONOCHROME_COLOR_SCHEME_COUNT)
                {
-                  win32_global_color_scheme = 0;
+                  gem_global_color_scheme = 0;
                }
 
-               WPARAM param = WIN32_MENU_VIEW_COLOR_DMG + win32_global_color_scheme;
+               WPARAM param = WIN32_MENU_VIEW_COLOR_DMG + gem_global_color_scheme;
                SendMessage(window, WM_COMMAND, param, 0);
             }
             else if(wparam == 'D')
@@ -996,7 +995,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    float target_seconds_per_frame = 1.0f / VERTICAL_SYNC_HZ;
    u32 target_cycles_per_frame = (u32)(CPU_HZ / VERTICAL_SYNC_HZ);
 
-   u32 clear_color = get_display_off_color(win32_global_color_scheme);
+   u32 clear_color = get_display_off_color(gem_global_color_scheme);
    clear(&bitmap, clear_color);
 
    struct cycle_clocks clocks = {0};
@@ -1016,7 +1015,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
       if(!map.load_complete)
       {
-         clear_color = get_display_off_color(win32_global_color_scheme);
+         clear_color = get_display_off_color(gem_global_color_scheme);
          clear(&bitmap, clear_color);
       }
 
@@ -1030,7 +1029,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
          clocks.cpu %= target_cycles_per_frame;
          while(clocks.cpu < target_cycles_per_frame)
          {
-            cpu_tick(&clocks, &bitmap, win32_global_color_scheme, &sound);
+            cpu_tick(&clocks, &bitmap, &sound);
          }
 
 #if 0
