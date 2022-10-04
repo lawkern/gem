@@ -19,8 +19,8 @@
 
 typedef struct
 {
-   int width;
-   int height;
+   s32 width;
+   s32 height;
 } Linux_Window_Dimensions;
 
 #define LINUX_SECONDS_ELAPSED(start, end) ((float)((end).tv_sec - (start).tv_sec) \
@@ -28,7 +28,6 @@ typedef struct
 
 static bool linux_global_is_running;
 static bool linux_global_is_paused;
-static Monochrome_Color_Scheme linux_global_color_scheme;
 
 static Display *linux_global_display;
 static XImage *linux_global_window_buffer;
@@ -63,7 +62,7 @@ PLATFORM_LOAD_FILE(platform_load_file)
    // TODO(law): Better file I/O once file access is needed anywhere besides
    // program startup.
 
-   Platform_File result = {0};
+   struct platform_file result = {0};
 
    struct stat file_information;
    if(stat(file_path, &file_information) == -1)
@@ -163,9 +162,9 @@ linux_process_input(XEvent event)
          }
          else if(keysym == XK_c)
          {
-            if(++linux_global_color_scheme >= MONOCHROME_COLOR_OPTION_COUNT)
+            if(++gem_global_color_scheme >= MONOCHROME_COLOR_SCHEME_COUNT)
             {
-               linux_global_color_scheme = 0;
+               gem_global_color_scheme = 0;
             }
          }
       }
@@ -227,8 +226,8 @@ linux_process_events(Window window)
          {
             fprintf(stdout, "Event: ConfigureNotify\n");
 
-            int window_width  = event.xconfigure.width;
-            int window_height = event.xconfigure.height;
+            s32 window_width  = event.xconfigure.width;
+            s32 window_height = event.xconfigure.height;
 
             // TODO(law): Handle resizing the window.
          } break;
@@ -257,12 +256,12 @@ linux_get_window_dimensions(Window window, Linux_Window_Dimensions *dimensions)
    XWindowAttributes window_attributes = {0};
    XGetWindowAttributes(display, window, &window_attributes);
 
-   dimensions->width  = (int)window_attributes.width;
-   dimensions->height = (int)window_attributes.height;
+   dimensions->width  = (s32)window_attributes.width;
+   dimensions->height = (s32)window_attributes.height;
 }
 
 static void
-linux_display_bitmap(Window window, Platform_Bitmap bitmap)
+linux_display_bitmap(Window window, struct pixel_bitmap bitmap)
 {
    Display *display = linux_global_display;
    XImage *image = linux_global_window_buffer;
@@ -271,34 +270,34 @@ linux_display_bitmap(Window window, Platform_Bitmap bitmap)
    Linux_Window_Dimensions dimensions;
    linux_get_window_dimensions(window, &dimensions);
 
-   int client_width = dimensions.width;
-   int client_height = dimensions.height;
+   s32 client_width = dimensions.width;
+   s32 client_height = dimensions.height;
 
    // TODO(law): There doesn't seem to be a good way using just the X11 protocol
    // to simulate StretchDIBits on Windows (short of just recreating the image),
    // so don't even bother to scale the image. We'll probably end up using
    // OpenGL for blitting in the end.
 
-   int target_width  = bitmap.width;
-   int target_height = bitmap.height;
+   s32 target_width  = bitmap.width;
+   s32 target_height = bitmap.height;
 
    XPutImage(display, window, graphics_context, image, 0, 0, 0, 0, target_width, target_height);
 
    if(client_width > target_width)
    {
-      int gutter_width = client_width - target_width;
+      s32 gutter_width = client_width - target_width;
       XClearArea(display, window, target_width, 0, gutter_width, client_height, False);
    }
 
    if(client_height > target_height)
    {
-      int gutter_height = client_height - target_height;
+      s32 gutter_height = client_height - target_height;
       XClearArea(display, window, 0, target_height, client_width, gutter_height, False);
    }
 }
 
 static Window
-linux_create_window(Platform_Bitmap bitmap)
+linux_create_window(struct pixel_bitmap bitmap)
 {
    Display *display = linux_global_display;
    if(!display)
@@ -308,9 +307,9 @@ linux_create_window(Platform_Bitmap bitmap)
    }
 
    Window root = DefaultRootWindow(display);
-   int screen_number = DefaultScreen(display);
+   s32 screen_number = DefaultScreen(display);
 
-   int screen_bit_depth = 24;
+   s32 screen_bit_depth = 24;
    XVisualInfo visual_info = {0};
    if(!XMatchVisualInfo(display, screen_number, screen_bit_depth, TrueColor, &visual_info))
    {
@@ -324,7 +323,7 @@ linux_create_window(Platform_Bitmap bitmap)
    linux_global_graphics_context = DefaultGC(display, screen_number);
 
    XSetWindowAttributes window_attributes = {0};
-   unsigned long attribute_mask = 0;
+   u64 attribute_mask = 0;
 
    window_attributes.background_pixel = 0;
    attribute_mask |= CWBackPixel;
@@ -396,14 +395,14 @@ main(int argument_count, char **arguments)
    }
 
    // NOTE(law): Perform general dynamic allocations up front.
-   Memory_Arena arena = {0};
+   struct memory_arena arena = {0};
    arena.size = MEBIBYTES(64);
    arena.base_address = mmap(0, arena.size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
 
    // NOTE(law) Set up the rendering bitmap.
-   Platform_Bitmap bitmap = {RESOLUTION_BASE_WIDTH, RESOLUTION_BASE_HEIGHT};
+   struct pixel_bitmap bitmap = {RESOLUTION_BASE_WIDTH, RESOLUTION_BASE_HEIGHT};
 
-   size_t bytes_per_pixel = sizeof(unsigned int);
+   size_t bytes_per_pixel = sizeof(u32);
    size_t bitmap_size = bitmap.width * bitmap.height * bytes_per_pixel;
    bitmap.memory = mmap(0, bitmap_size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
 
@@ -415,13 +414,13 @@ main(int argument_count, char **arguments)
 
    float frame_seconds_elapsed = 0;
    float target_seconds_per_frame = 1.0f / VERTICAL_SYNC_HZ;
-   unsigned int target_cycles_per_frame = (unsigned int)(CPU_HZ / VERTICAL_SYNC_HZ);
+   u32 target_cycles_per_frame = (u32)(CPU_HZ / VERTICAL_SYNC_HZ);
 
-   unsigned int clear_color = get_display_off_color(linux_global_color_scheme);
+   u32 clear_color = get_display_off_color();
    clear(&bitmap, clear_color);
 
-   Clocks clocks = {0};
-   Sound_Samples sound = {0};
+   struct cycle_clocks clocks = {0};
+   struct sound_samples sound = {0};
    sound.size = SOUND_OUTPUT_HZ * SOUND_OUTPUT_BYTES_PER_SAMPLE;
    sound.samples = mmap(0, sound.size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
 
@@ -435,7 +434,7 @@ main(int argument_count, char **arguments)
 
       if(!map.load_complete)
       {
-         clear_color = get_display_off_color(linux_global_color_scheme);
+         clear_color = get_display_off_color();
          clear(&bitmap, clear_color);
       }
 
@@ -444,19 +443,7 @@ main(int argument_count, char **arguments)
          clocks.cpu %= target_cycles_per_frame;
          while(clocks.cpu < target_cycles_per_frame)
          {
-            cpu_tick(&clocks, &sound);
-         }
-      }
-
-      if(!linux_global_is_paused && map.load_complete)
-      {
-         // NOTE(law): Just loop over VRAM and display all the data as tiles.
-         static int tile_offset = 0;
-         dump_vram(&bitmap, tile_offset++, PALETTE_DATA_BG, linux_global_color_scheme);
-
-         if(tile_offset >= 512 || register_pc == 0)
-         {
-            tile_offset = 0;
+            cpu_tick(&clocks, &bitmap, &sound);
          }
       }
 
@@ -467,14 +454,14 @@ main(int argument_count, char **arguments)
       struct timespec frame_end_count;
       clock_gettime(CLOCK_MONOTONIC, &frame_end_count);
 
-      unsigned int sleep_us = 0;
-      unsigned int instructions_executed = 0;
+      u32 sleep_us = 0;
+      u32 instructions_executed = 0;
       frame_seconds_elapsed = LINUX_SECONDS_ELAPSED(frame_start_count, frame_end_count);
 
       float sleep_fraction = 0.9f;
       if(frame_seconds_elapsed < target_seconds_per_frame)
       {
-         sleep_us = (unsigned int)((target_seconds_per_frame - frame_seconds_elapsed) * 1000.0f * 1000.0f * sleep_fraction);
+         sleep_us = (u32)((target_seconds_per_frame - frame_seconds_elapsed) * 1000.0f * 1000.0f * sleep_fraction);
          if(sleep_us > 0)
          {
             usleep(sleep_us);
