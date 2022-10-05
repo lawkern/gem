@@ -48,12 +48,49 @@ PLATFORM_LOG(platform_log)
    printf("%s", message);
 }
 
+static void *
+linux_allocate(size_t size)
+{
+   // NOTE(law): munmap() requires the size of the allocation in order to free
+   // the virtual memory. This function smuggles the allocation size just before
+   // the address that it actually returns.
+
+   size_t allocation_size = size + sizeof(size_t);
+   void *allocation = mmap(0, allocation_size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+
+   if(allocation == MAP_FAILED)
+   {
+      platform_log("ERROR: Linux failed to allocate virtual memory.");
+      return(0);
+   }
+
+   *(size_t *)allocation = allocation_size;
+
+   void *result = (void *)((u8 *)allocation + sizeof(size_t));
+   return(result);
+}
+
+static void
+linux_deallocate(void *memory)
+{
+   // NOTE(law): munmap() requires the size of the allocation in order to free
+   // the virtual memory. We always just want to dump the entire thing, so
+   // allocate() hides the allocation size just before the address it returns.
+
+   void *allocation = (void *)((u8 *)memory - sizeof(size_t));
+   size_t allocation_size = *(size_t *)allocation;
+
+   if(munmap(allocation, allocation_size) != 0)
+   {
+      platform_log("ERROR: Linux failed to deallocate virtual memory.");
+   }
+}
+
 static
 PLATFORM_FREE_FILE(platform_free_file)
 {
-   free(file->memory);
-   file->size = 0;
-   file->memory = 0;
+   linux_deallocate(file->memory);
+   zero_memory(file, sizeof(*file));
 }
 
 static
@@ -80,7 +117,7 @@ PLATFORM_LOAD_FILE(platform_load_file)
 
    size_t size = file_information.st_size;
 
-   result.memory = malloc(size);
+   result.memory = linux_allocate(size);
    if(result.memory)
    {
       result.size = size;
@@ -397,14 +434,14 @@ main(int argument_count, char **arguments)
    // NOTE(law): Perform general dynamic allocations up front.
    struct memory_arena arena = {0};
    arena.size = MEBIBYTES(64);
-   arena.base_address = mmap(0, arena.size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+   arena.base_address = linux_allocate(arena.size);
 
    // NOTE(law) Set up the rendering bitmap.
    struct pixel_bitmap bitmap = {RESOLUTION_BASE_WIDTH, RESOLUTION_BASE_HEIGHT};
 
    size_t bytes_per_pixel = sizeof(u32);
    size_t bitmap_size = bitmap.width * bitmap.height * bytes_per_pixel;
-   bitmap.memory = mmap(0, bitmap_size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+   bitmap.memory = linux_allocate(bitmap_size);
 
    linux_global_display = XOpenDisplay(0);
    Window window = linux_create_window(bitmap);
@@ -422,7 +459,7 @@ main(int argument_count, char **arguments)
    struct cycle_clocks clocks = {0};
    struct sound_samples sound = {0};
    sound.size = SOUND_OUTPUT_HZ * SOUND_OUTPUT_BYTES_PER_SAMPLE;
-   sound.samples = mmap(0, sound.size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+   sound.samples = linux_allocate(sound.size);
 
    struct timespec frame_start_count;
    clock_gettime(CLOCK_MONOTONIC, &frame_start_count);
