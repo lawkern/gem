@@ -11,6 +11,10 @@
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
 
+#include <GL/gl.h>
+#include <GL/glx.h>
+#include <GL/glu.h>
+
 #include <stdarg.h>
 #include <string.h>
 #include <time.h>
@@ -28,10 +32,7 @@ struct linux_window_dimensions
 
 static bool linux_global_is_running;
 static bool linux_global_is_paused;
-
 static Display *linux_global_display;
-static XImage *linux_global_window_buffer;
-static GC linux_global_graphics_context;
 
 static
 PLATFORM_LOG(platform_log)
@@ -104,14 +105,14 @@ PLATFORM_LOAD_FILE(platform_load_file)
    struct stat file_information;
    if(stat(file_path, &file_information) == -1)
    {
-      fprintf(stderr, "ERROR: Failed to read file size of file: \"%s\".\n", file_path);
+      platform_log("ERROR: Linux failed to read file size of file: \"%s\".\n", file_path);
       return(result);
    }
 
    int file = open(file_path, O_RDONLY);
    if(file == -1)
    {
-      fprintf(stderr, "ERROR: Failed to open file: \"%s\".\n", file_path);
+      platform_log("ERROR: Linux failed to open file: \"%s\".\n", file_path);
       return(result);
    }
 
@@ -125,7 +126,7 @@ PLATFORM_LOAD_FILE(platform_load_file)
    }
    else
    {
-      fprintf(stderr, "ERROR: Failed to allocate memory for file: \"%s\".\n", file_path);
+      platform_log("ERROR: Linux failed to allocate memory for file: \"%s\".\n", file_path);
    }
 
    close(file);
@@ -236,8 +237,6 @@ linux_process_events(Window window)
       {
          case DestroyNotify:
          {
-            fprintf(stdout, "Event: DestroyNotify\n");
-
             XDestroyWindowEvent destroy_notify_event = event.xdestroywindow;
             if(destroy_notify_event.window == window)
             {
@@ -250,19 +249,12 @@ linux_process_events(Window window)
             XExposeEvent expose_event = event.xexpose;
             if(expose_event.count != 0)
             {
-               fprintf(stdout, "Event: Expose\n");
                continue;
-            }
-            else
-            {
-               fprintf(stdout, "Event: Expose (final)\n");
             }
          } break;
 
          case ConfigureNotify:
          {
-            fprintf(stdout, "Event: ConfigureNotify\n");
-
             s32 window_width  = event.xconfigure.width;
             s32 window_height = event.xconfigure.height;
 
@@ -279,7 +271,7 @@ linux_process_events(Window window)
 
          default:
          {
-            fprintf(stdout, "Event: unhandled\n");
+            platform_log("Unhandled X11 event.\n");
          } break;
       }
    }
@@ -300,64 +292,110 @@ linux_get_window_dimensions(Window window, struct linux_window_dimensions *dimen
 static void
 linux_display_bitmap(Window window, struct pixel_bitmap bitmap)
 {
-   Display *display = linux_global_display;
-   XImage *image = linux_global_window_buffer;
-   GC graphics_context = linux_global_graphics_context;
-
+   // NOTE(law): Set up the viewport size.
    struct linux_window_dimensions dimensions;
    linux_get_window_dimensions(window, &dimensions);
 
-   s32 client_width = dimensions.width;
-   s32 client_height = dimensions.height;
+   float client_width = (float)dimensions.width;
+   float client_height = (float)dimensions.height;
 
-   // TODO(law): There doesn't seem to be a good way using just the X11 protocol
-   // to simulate StretchDIBits on Windows (short of just recreating the image),
-   // so don't even bother to scale the image. We'll probably end up using
-   // OpenGL for blitting in the end.
+   float client_aspect_ratio = client_width / client_height;
+   float target_aspect_ratio = (float)RESOLUTION_BASE_WIDTH / (float)RESOLUTION_BASE_HEIGHT;
 
-   s32 target_width  = bitmap.width;
-   s32 target_height = bitmap.height;
+   float target_width  = client_width;
+   float target_height = client_height;
+   float gutter_width  = 0;
+   float gutter_height = 0;
 
-   XPutImage(display, window, graphics_context, image, 0, 0, 0, 0, target_width, target_height);
-
-   if(client_width > target_width)
+   if(client_aspect_ratio > target_aspect_ratio)
    {
-      s32 gutter_width = client_width - target_width;
-      XClearArea(display, window, target_width, 0, gutter_width, client_height, False);
+      // NOTE(law): The window is too wide, fill in the left and right sides
+      // with black gutters.
+      target_width = target_aspect_ratio * (float)client_height;
+      gutter_width = (client_width - target_width) / 2;
+   }
+   else if(client_aspect_ratio < target_aspect_ratio)
+   {
+      // NOTE(law): The window is too tall, fill in the top and bottom with
+      // black gutters.
+      target_height = (1.0f / target_aspect_ratio) * (float)client_width;
+      gutter_height = (client_height - target_height) / 2;
    }
 
-   if(client_height > target_height)
+   glViewport(gutter_width, gutter_height, target_width, target_height);
+
+   // NOTE(law): Set up the pixel bitmap as an OpenGL texture.
+   glBindTexture(GL_TEXTURE_2D, 1);
+   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, bitmap.width, bitmap.height, 0,
+                GL_BGRA_EXT, GL_UNSIGNED_BYTE, bitmap.memory);
+
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP);
+
+   glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+   glEnable(GL_TEXTURE_2D);
+
+   // NOTE(law): Set up the matrix modes.
+   glMatrixMode(GL_TEXTURE);
+   glLoadIdentity();
+
+   glMatrixMode(GL_MODELVIEW);
+   glLoadIdentity();
+
+   glMatrixMode(GL_PROJECTION);
+   glLoadIdentity();
+
+   // NOTE(law): Clear the window to black.
+   glClearColor(0, 0, 0, 1);
+   glClear(GL_COLOR_BUFFER_BIT);
+
+   glBegin(GL_TRIANGLES);
    {
-      s32 gutter_height = client_height - target_height;
-      XClearArea(display, window, 0, target_height, client_width, gutter_height, False);
+      // NOTE(law): The source bitmap is top-down, so just reverse the y texture
+      // coordinates for now to match the bottom-up convention of OpenGL.
+
+      // NOTE(law): Lower triangle.
+      glTexCoord2f(0, 1);
+      glVertex2f(-1, -1);
+
+      glTexCoord2f(1, 1);
+      glVertex2f(1, -1);
+
+      glTexCoord2f(1, 0);
+      glVertex2f(1, 1);
+
+      // NOTE(law): Upper triangle.
+      glTexCoord2f(0, 1);
+      glVertex2f(-1, -1);
+
+      glTexCoord2f(1, 0);
+      glVertex2f(1, 1);
+
+      glTexCoord2f(0, 0);
+      glVertex2f(-1, 1);
    }
+   glEnd();
+
+   glXSwapBuffers(linux_global_display, window);
 }
 
 static Window
-linux_create_window(struct pixel_bitmap bitmap)
+linux_create_window(struct pixel_bitmap bitmap, XVisualInfo *visual_info)
 {
    Display *display = linux_global_display;
    if(!display)
    {
-      fprintf(stderr, "Failed to open a display.\n");
-      exit(1);
+      platform_log("X11 failed to open a display.\n");
+      exit(EXIT_FAILURE);
    }
 
    Window root = DefaultRootWindow(display);
+
    s32 screen_number = DefaultScreen(display);
-
    s32 screen_bit_depth = 24;
-   XVisualInfo visual_info = {0};
-   if(!XMatchVisualInfo(display, screen_number, screen_bit_depth, TrueColor, &visual_info))
-   {
-      fprintf(stderr, "Failed to find a matching XVisualInfo.\n");
-      exit(1);
-   }
-
-   linux_global_window_buffer = XCreateImage(display, visual_info.visual, visual_info.depth, ZPixmap, 0,
-                                             (char *)bitmap.memory, bitmap.width, bitmap.height, 32, 0);
-
-   linux_global_graphics_context = DefaultGC(display, screen_number);
 
    XSetWindowAttributes window_attributes = {0};
    u64 attribute_mask = 0;
@@ -373,7 +411,7 @@ linux_create_window(struct pixel_bitmap bitmap)
    window_attributes.bit_gravity = StaticGravity;
    attribute_mask |= CWBitGravity;
 
-   window_attributes.colormap = XCreateColormap(display, root, visual_info.visual, AllocNone);
+   window_attributes.colormap = XCreateColormap(display, root, visual_info->visual, AllocNone);
    attribute_mask |= CWColormap;
 
    window_attributes.event_mask = (ExposureMask |
@@ -392,16 +430,16 @@ linux_create_window(struct pixel_bitmap bitmap)
                                  bitmap.width,
                                  bitmap.height,
                                  0,
-                                 visual_info.depth,
+                                 visual_info->depth,
                                  InputOutput,
-                                 visual_info.visual,
+                                 visual_info->visual,
                                  attribute_mask,
                                  &window_attributes);
 
    if(!window)
    {
-      fprintf(stderr, "Failed to open a display.\n");
-      exit(1);
+      platform_log("X11 failed to open a display.\n");
+      exit(EXIT_FAILURE);
    }
 
    XStoreName(display, window, "Game Boy Emulator (GEM)");
@@ -420,6 +458,128 @@ linux_create_window(struct pixel_bitmap bitmap)
    return(window);
 }
 
+static Window
+linux_initialize_opengl(struct pixel_bitmap bitmap)
+{
+   // TODO(law): Better checking for available GL extensions.
+
+   Display *display = linux_global_display;
+   s32 screen_number = DefaultScreen(display);
+
+   int error_base;
+   int event_base;
+   if(!glXQueryExtension(display, &error_base, &event_base))
+   {
+      platform_log("ERROR: glX Extensions not supported.\n");
+      exit(EXIT_FAILURE);
+   }
+
+   // NOTE(law): Get glX frame buffer configuration.
+   int configuration_attributes[] =
+   {
+      GLX_X_RENDERABLE, True,
+      GLX_DRAWABLE_TYPE, GLX_WINDOW_BIT,
+      GLX_RENDER_TYPE, GLX_RGBA_BIT,
+      GLX_X_VISUAL_TYPE, GLX_TRUE_COLOR,
+      GLX_RED_SIZE, 8,
+      GLX_GREEN_SIZE, 8,
+      GLX_BLUE_SIZE, 8,
+      GLX_ALPHA_SIZE, 8,
+      GLX_DEPTH_SIZE, 24,
+      GLX_STENCIL_SIZE, 8,
+      GLX_DOUBLEBUFFER, True,
+      // GLX_FRAMEBUFFER_SRGB_CAPABLE_ARB, True,
+      GLX_SAMPLE_BUFFERS, 1,
+      GLX_SAMPLES, 4,
+      None
+   };
+
+   s32 configuration_count = 0;
+   GLXFBConfig *configurations = glXChooseFBConfig(display, screen_number, configuration_attributes, &configuration_count);
+
+   GLXFBConfig configuration;
+   bool found_valid_configuration = false;
+   for(u32 configuration_index = 0; configuration_index < configuration_count; ++configuration_index)
+   {
+      configuration = configurations[configuration_index];
+
+      XVisualInfo *visual_info = glXGetVisualFromFBConfig(display, configuration);
+      if(visual_info)
+      {
+         s32 visual_id = visual_info->visualid;
+         XFree(visual_info);
+
+         if(visual_id)
+         {
+            found_valid_configuration = true;
+            break;
+         }
+      }
+   }
+
+   XFree(configurations);
+
+   if(!found_valid_configuration)
+   {
+      platform_log("ERROR: glX failed to find a suitable framebuffer configuration.\n");
+      exit(EXIT_FAILURE);
+   }
+
+   XVisualInfo *visual_info = glXGetVisualFromFBConfig(display, configuration);
+   Window window = linux_create_window(bitmap, visual_info);
+
+   typedef GLXContext CCA(Display *, GLXFBConfig, GLXContext, Bool, const int *);
+   CCA *glXCreateContextAttribsARB = (CCA *)glXGetProcAddressARB((const GLubyte *)"glXCreateContextAttribsARB");
+
+   if(!glXCreateContextAttribsARB)
+   {
+      platform_log("ERROR: glXCreateContextAttribsARB could not be retrieved.\n");
+      exit(EXIT_FAILURE);
+   }
+
+   s32 context_attributes[] =
+   {
+      GLX_CONTEXT_MAJOR_VERSION_ARB, 3,
+      GLX_CONTEXT_MINOR_VERSION_ARB, 0,
+#if DEVELOPMENT_BUILD
+      GLX_CONTEXT_FLAGS_ARB, GLX_CONTEXT_DEBUG_BIT_ARB,
+#endif
+      GLX_CONTEXT_PROFILE_MASK_ARB, GLX_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB,
+      None
+   };
+
+   GLXContext gl_context = glXCreateContextAttribsARB(display, configuration, 0, True, context_attributes);
+   if(!gl_context)
+   {
+      platform_log("ERROR: glX failed to create the glX context.");
+      exit(EXIT_FAILURE);
+   }
+
+   if(glXMakeCurrent(display, window, gl_context) == False)
+   {
+      platform_log("ERROR: glX failed to attach the glX context.");
+      exit(EXIT_FAILURE);
+   }
+
+   // TODO(law): Load other GL functions here as necessary.
+
+   typedef void GLXSI(Display *dpy, GLXDrawable drawable, int interval);
+   GLXSI *glXSwapIntervalEXT = (GLXSI *)glXGetProcAddressARB((const GLubyte *)"glXSwapIntervalEXT");
+
+   if(glXSwapIntervalEXT)
+   {
+      bool is_vsync_enabled = true;
+      glXSwapIntervalEXT(display, window, is_vsync_enabled ? 1 : 0);
+   }
+
+   s32 glx_major_version;
+   s32 glx_minor_version;
+   glXQueryVersion(display, &glx_major_version, &glx_minor_version);
+   platform_log("glX version %d.%d\n", glx_major_version, glx_minor_version);
+
+   return(window);
+}
+
 int
 main(int argument_count, char **arguments)
 {
@@ -427,7 +587,7 @@ main(int argument_count, char **arguments)
 
    if(argument_count != 2)
    {
-      fprintf(stdout, "USAGE: %s <path to ROM file>\n", program_name);
+      platform_log("USAGE: %s <path to ROM file>\n", program_name);
       return(0);
    }
 
@@ -443,8 +603,9 @@ main(int argument_count, char **arguments)
    size_t bitmap_size = bitmap.width * bitmap.height * bytes_per_pixel;
    bitmap.memory = linux_allocate(bitmap_size);
 
+   // NOTE(law): Initialize the global display here.
    linux_global_display = XOpenDisplay(0);
-   Window window = linux_create_window(bitmap);
+   Window window = linux_initialize_opengl(bitmap);
 
    char *rom_path = arguments[argument_count - 1];
    load_cartridge(&arena, rom_path);
@@ -482,6 +643,8 @@ main(int argument_count, char **arguments)
          {
             cpu_tick(&clocks, &bitmap, &sound);
          }
+
+         clear_sound_samples(&sound);
       }
 
       // NOTE(law): Blit bitmap to screen.
