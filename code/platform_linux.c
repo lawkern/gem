@@ -134,149 +134,6 @@ PLATFORM_LOAD_FILE(platform_load_file)
 }
 
 static void
-linux_process_input(XEvent event)
-{
-   // Keyboard handling:
-   if(event.type == KeyPress || event.type == KeyRelease)
-   {
-      XKeyEvent key_event = event.xkey;
-      bool alt_key_pressed = (key_event.state | XK_Meta_L | XK_Meta_R);
-
-      char buffer[256];
-      KeySym keysym;
-      XLookupString(&key_event, buffer, ARRAY_LENGTH(buffer), &keysym, 0);
-
-      if(event.type == KeyPress)
-      {
-         if(keysym == XK_Escape || (alt_key_pressed && keysym == XK_F4))
-         {
-            linux_global_is_running = false;
-         }
-         else if(keysym == XK_h)
-         {
-            // NOTE(law): Print the contents of the cartridge header.
-            if(map.load_complete)
-            {
-               dump_cartridge_header(map.rom_banks[0].memory);
-            }
-            else
-            {
-               platform_log("No cartridge is currently loaded.\n");
-            }
-         }
-         else if(keysym == XK_d)
-         {
-            // NOTE(law): Print the disassembly.
-            if(map.load_complete)
-            {
-               platform_log("Parsing instruction stream...\n");
-               disassemble_stream(0, 0x10000);
-            }
-            else
-            {
-               platform_log("No cartridge is currently loaded.\n");
-            }
-         }
-         else if(keysym == XK_n)
-         {
-            // NOTE(law): Fetch and execute the next instruction.
-            if(map.load_complete)
-            {
-               platform_log("Fetching and executing instruction...\n");
-               disassemble_instruction(registers.pc);
-
-               handle_interrupts();
-               fetch_and_execute();
-            }
-            else
-            {
-               platform_log("No cartridge is currently loaded.\n");
-            }
-         }
-         else if(keysym == XK_p)
-         {
-            linux_global_is_paused = !linux_global_is_paused;
-         }
-         else if(keysym == XK_c)
-         {
-            if(++gem_global_color_scheme >= MONOCHROME_COLOR_SCHEME_COUNT)
-            {
-               gem_global_color_scheme = 0;
-            }
-         }
-      }
-   }
-}
-
-static void
-linux_process_events(Window window)
-{
-   Display *display = linux_global_display;
-
-   while(linux_global_is_running && XPending(display))
-   {
-      XEvent event;
-      XNextEvent(display, &event);
-
-      // NOTE(law): Prevent key repeating.
-      if(event.type == KeyRelease && XEventsQueued(display, QueuedAfterReading))
-      {
-         XEvent next_event;
-         XPeekEvent(display, &next_event);
-         if(next_event.type == KeyPress &&
-             next_event.xkey.time == event.xkey.time &&
-             next_event.xkey.keycode == event.xkey.keycode)
-         {
-            XNextEvent(display, &event);
-            continue;
-         }
-      }
-
-      switch (event.type)
-      {
-         case DestroyNotify:
-         {
-            XDestroyWindowEvent destroy_notify_event = event.xdestroywindow;
-            if(destroy_notify_event.window == window)
-            {
-               linux_global_is_running = false;
-            }
-         } break;
-
-         case Expose:
-         {
-            XExposeEvent expose_event = event.xexpose;
-            if(expose_event.count != 0)
-            {
-               continue;
-            }
-         } break;
-
-         case ConfigureNotify:
-         {
-            s32 window_width  = event.xconfigure.width;
-            s32 window_height = event.xconfigure.height;
-
-            // TODO(law): Handle resizing the window.
-         } break;
-
-         case KeyPress:
-         case KeyRelease:
-         case ButtonPress:
-         case ButtonRelease:
-         {
-            linux_process_input(event);
-         } break;
-
-         default:
-         {
-            platform_log("Unhandled X11 event.\n");
-         } break;
-      }
-   }
-}
-
-static void
 linux_get_window_dimensions(Window window, struct linux_window_dimensions *dimensions)
 {
    Display *display = linux_global_display;
@@ -286,6 +143,15 @@ linux_get_window_dimensions(Window window, struct linux_window_dimensions *dimen
 
    dimensions->width  = (s32)window_attributes.width;
    dimensions->height = (s32)window_attributes.height;
+}
+
+static void
+linux_set_resolution_scale(Window window, u32 scale)
+{
+   u32 width = RESOLUTION_BASE_WIDTH << scale;
+   u32 height = RESOLUTION_BASE_HEIGHT << scale;
+
+   XResizeWindow(linux_global_display, window, width, height);
 }
 
 static void
@@ -551,6 +417,165 @@ linux_initialize_opengl(struct pixel_bitmap bitmap)
    platform_log("glX version %d.%d\n", glx_major_version, glx_minor_version);
 
    return(window);
+}
+
+static void
+linux_process_input(Window window, XEvent event)
+{
+   // Keyboard handling:
+   if(event.type == KeyPress || event.type == KeyRelease)
+   {
+      XKeyEvent key_event = event.xkey;
+      bool alt_key_pressed = (key_event.state | XK_Meta_L | XK_Meta_R);
+
+      char buffer[256];
+      KeySym keysym;
+      XLookupString(&key_event, buffer, ARRAY_LENGTH(buffer), &keysym, 0);
+
+      if(event.type == KeyPress)
+      {
+         if(keysym == XK_Escape || (alt_key_pressed && keysym == XK_F4))
+         {
+            linux_global_is_running = false;
+         }
+         else if(keysym == XK_1)
+         {
+            linux_set_resolution_scale(window, 0);
+         }
+         else if(keysym == XK_2)
+         {
+            linux_set_resolution_scale(window, 1);
+         }
+         else if(keysym == XK_4)
+         {
+            linux_set_resolution_scale(window, 2);
+         }
+         else if(keysym == XK_8)
+         {
+            linux_set_resolution_scale(window, 3);
+         }
+         else if(keysym == XK_h)
+         {
+            // NOTE(law): Print the contents of the cartridge header.
+            if(map.load_complete)
+            {
+               dump_cartridge_header(map.rom_banks[0].memory);
+            }
+            else
+            {
+               platform_log("No cartridge is currently loaded.\n");
+            }
+         }
+         else if(keysym == XK_d)
+         {
+            // NOTE(law): Print the disassembly.
+            if(map.load_complete)
+            {
+               platform_log("Parsing instruction stream...\n");
+               disassemble_stream(0, 0x10000);
+            }
+            else
+            {
+               platform_log("No cartridge is currently loaded.\n");
+            }
+         }
+         else if(keysym == XK_n)
+         {
+            // NOTE(law): Fetch and execute the next instruction.
+            if(map.load_complete)
+            {
+               platform_log("Fetching and executing instruction...\n");
+               disassemble_instruction(registers.pc);
+
+               handle_interrupts();
+               fetch_and_execute();
+            }
+            else
+            {
+               platform_log("No cartridge is currently loaded.\n");
+            }
+         }
+         else if(keysym == XK_p)
+         {
+            linux_global_is_paused = !linux_global_is_paused;
+         }
+         else if(keysym == XK_c)
+         {
+            if(++gem_global_color_scheme >= MONOCHROME_COLOR_SCHEME_COUNT)
+            {
+               gem_global_color_scheme = 0;
+            }
+         }
+      }
+   }
+}
+
+static void
+linux_process_events(Window window)
+{
+   Display *display = linux_global_display;
+
+   while(linux_global_is_running && XPending(display))
+   {
+      XEvent event;
+      XNextEvent(display, &event);
+
+      // NOTE(law): Prevent key repeating.
+      if(event.type == KeyRelease && XEventsQueued(display, QueuedAfterReading))
+      {
+         XEvent next_event;
+         XPeekEvent(display, &next_event);
+         if(next_event.type == KeyPress &&
+             next_event.xkey.time == event.xkey.time &&
+             next_event.xkey.keycode == event.xkey.keycode)
+         {
+            XNextEvent(display, &event);
+            continue;
+         }
+      }
+
+      switch (event.type)
+      {
+         case DestroyNotify:
+         {
+            XDestroyWindowEvent destroy_notify_event = event.xdestroywindow;
+            if(destroy_notify_event.window == window)
+            {
+               linux_global_is_running = false;
+            }
+         } break;
+
+         case Expose:
+         {
+            XExposeEvent expose_event = event.xexpose;
+            if(expose_event.count != 0)
+            {
+               continue;
+            }
+         } break;
+
+         case ConfigureNotify:
+         {
+            s32 window_width  = event.xconfigure.width;
+            s32 window_height = event.xconfigure.height;
+
+            // TODO(law): Handle resizing the window.
+         } break;
+
+         case KeyPress:
+         case KeyRelease:
+         case ButtonPress:
+         case ButtonRelease:
+         {
+            linux_process_input(window, event);
+         } break;
+
+         default:
+         {
+            platform_log("Unhandled X11 event.\n");
+         } break;
+      }
+   }
 }
 
 int
