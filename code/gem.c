@@ -7,7 +7,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 
 typedef  uint8_t u8;
 typedef uint16_t u16;
@@ -121,13 +120,17 @@ static struct
    u16 sp;
 } registers;
 
+static bool halt;
+static bool stop;
+static bool ime;
+
 #define REGISTER_BC (((u16)registers.b << 8) | (u16)registers.c)
 #define REGISTER_DE (((u16)registers.d << 8) | (u16)registers.e)
 #define REGISTER_HL (((u16)registers.h << 8) | (u16)registers.l)
 #define REGISTER_AF (((u16)registers.a << 8) | (u16)registers.f)
 
-#define REGISTER_IE 0xFFFF
-#define REGISTER_IF 0xFF0F
+#define REGISTER_IE_ADDRESS 0xFFFF
+#define REGISTER_IF_ADDRESS 0xFF0F
 
 #define FLAG_Z_BIT 7
 #define FLAG_N_BIT 6
@@ -143,45 +146,6 @@ static struct
 #define FLAG_N ((registers.f >> FLAG_N_BIT) & 0x1)
 #define FLAG_H ((registers.f >> FLAG_H_BIT) & 0x1)
 #define FLAG_C ((registers.f >> FLAG_C_BIT) & 0x1)
-
-#define INTERRUPT_VBLANK_BIT   0
-#define INTERRUPT_LCD_STAT_BIT 1
-#define INTERRUPT_TIMER_BIT    2
-#define INTERRUPT_SERIAL_BIT   3
-#define INTERRUPT_JOYPAD_BIT   4
-
-#define INTERRUPT_VBLANK_MASK   (1 << INTERRUPT_VBLANK_BIT)
-#define INTERRUPT_LCD_STAT_MASK (1 << INTERRUPT_LCD_STAT_BIT)
-#define INTERRUPT_TIMER_MASK    (1 << INTERRUPT_TIMER_BIT)
-#define INTERRUPT_SERIAL_MASK   (1 << INTERRUPT_SERIAL_BIT)
-#define INTERRUPT_JOYPAD_MASK   (1 << INTERRUPT_JOYPAD_BIT)
-
-#define ENABLE_VBLANK   ((read_memory(REGISTER_IE) >> INTERRUPT_VBLANK_BIT)   & 0x1)
-#define ENABLE_LCD_STAT ((read_memory(REGISTER_IE) >> INTERRUPT_LCD_STAT_BIT) & 0x1)
-#define ENABLE_TIMER    ((read_memory(REGISTER_IE) >> INTERRUPT_TIMER_BIT)    & 0x1)
-#define ENABLE_SERIAL   ((read_memory(REGISTER_IE) >> INTERRUPT_SERIAL_BIT)   & 0x1)
-#define ENABLE_JOYPAD   ((read_memory(REGISTER_IE) >> INTERRUPT_JOYPAD_BIT)   & 0x1)
-
-#define REQUEST_VBLANK   ((read_memory(REGISTER_IF) >> INTERRUPT_VBLANK_BIT)   & 0x1)
-#define REQUEST_LCD_STAT ((read_memory(REGISTER_IF) >> INTERRUPT_LCD_STAT_BIT) & 0x1)
-#define REQUEST_TIMER    ((read_memory(REGISTER_IF) >> INTERRUPT_TIMER_BIT)    & 0x1)
-#define REQUEST_SERIAL   ((read_memory(REGISTER_IF) >> INTERRUPT_SERIAL_BIT)   & 0x1)
-#define REQUEST_JOYPAD   ((read_memory(REGISTER_IF) >> INTERRUPT_JOYPAD_BIT)   & 0x1)
-
-#define JOYPAD_DOWN_START_BIT 3
-#define JOYPAD_UP_SELECT_BIT  2
-#define JOYPAD_LEFT_B_BIT     1
-#define JOYPAD_RIGHT_A_BIT    0
-
-#define JOYPAD_DOWN_START_MASK (1 << JOYPAD_DOWN_START_MASK)
-#define JOYPAD_UP_SELECT_MASK  (1 << JOYPAD_UP_SELECT_MASK
-#define JOYPAD_LEFT_B_MASK     (1 << JOYPAD_LEFT_B_MASK)
-#define JOYPAD_RIGHT_A_MASK    (1 << JOYPAD_RIGHT_A_MASK)
-
-
-static bool halt;
-static bool stop;
-static bool ime;
 
 static u8 boot_rom[] =
 {
@@ -203,8 +167,6 @@ static u8 boot_rom[] =
    0xF5, 0x06, 0x19, 0x78, 0x86, 0x23, 0x05, 0x20, 0xFB, 0x86, 0x20, 0xFE, 0x3E, 0x01, 0xE0, 0x50,
 };
 
-#define ALLOCATE(arena, Type) allocate((arena), sizeof(Type))
-
 static void *
 allocate(struct memory_arena *arena, size_t size)
 {
@@ -225,8 +187,13 @@ reset_arena(struct memory_arena *arena)
 static void
 zero_memory(void *memory, size_t size)
 {
-   // TODO(law): Remove dependency on stdlib!
-   memset(memory, 0, size);
+   // TODO(law): Speed this up!
+
+   u8 *byte = memory;
+   while(size--)
+   {
+      *byte++ = 0;
+   }
 }
 
 static u16
@@ -3242,10 +3209,49 @@ fetch_and_execute()
    return(cycles);
 }
 
+#define INTERRUPT_VBLANK_BIT   0
+#define INTERRUPT_LCD_STAT_BIT 1
+#define INTERRUPT_TIMER_BIT    2
+#define INTERRUPT_SERIAL_BIT   3
+#define INTERRUPT_JOYPAD_BIT   4
+
+#define INTERRUPT_VBLANK_MASK   (1 << INTERRUPT_VBLANK_BIT)
+#define INTERRUPT_LCD_STAT_MASK (1 << INTERRUPT_LCD_STAT_BIT)
+#define INTERRUPT_TIMER_MASK    (1 << INTERRUPT_TIMER_BIT)
+#define INTERRUPT_SERIAL_MASK   (1 << INTERRUPT_SERIAL_BIT)
+#define INTERRUPT_JOYPAD_MASK   (1 << INTERRUPT_JOYPAD_BIT)
+
+#define LCD_STATUS_LYC_LY_INTERRUPT_BIT 6
+#define LCD_STATUS_OAM_INTERRUPT_BIT    5
+#define LCD_STATUS_VBLANK_INTERRUPT_BIT 4
+#define LCD_STATUS_HBLANK_INTERRUPT_BIT 3
+#define LCD_STATUS_LYC_EQUALS_LY_BIT    2
+
+#define LCD_STATUS_INTERRUPT_LYC_LY_MASK (1 << LCD_STATUS_LYC_LY_INTERRUPT_BIT)
+#define LCD_STATUS_INTERRUPT_OAM_MASK    (1 << LCD_STATUS_OAM_INTERRUPT_BIT)
+#define LCD_STATUS_INTERRUPT_VBLANK_MASK (1 << LCD_STATUS_VBLANK_INTERRUPT_BIT)
+#define LCD_STATUS_INTERRUPT_HBLANK_MASK (1 << LCD_STATUS_HBLANK_INTERRUPT_BIT)
+#define LCD_STATUS_LYC_EQUALS_LY_MASK    (1 << LCD_STATUS_LYC_EQUALS_LY_BIT)
+
+#define LCD_STATUS_MODE_HBLANK   0
+#define LCD_STATUS_MODE_VBLANK   1
+#define LCD_STATUS_MODE_OAM      2
+#define LCD_STATUS_MODE_TRANSFER 3
+
+#define JOYPAD_DOWN_START_BIT 3
+#define JOYPAD_UP_SELECT_BIT  2
+#define JOYPAD_LEFT_B_BIT     1
+#define JOYPAD_RIGHT_A_BIT    0
+
+#define JOYPAD_DOWN_START_MASK (1 << JOYPAD_DOWN_START_MASK)
+#define JOYPAD_UP_SELECT_MASK  (1 << JOYPAD_UP_SELECT_MASK
+#define JOYPAD_LEFT_B_MASK     (1 << JOYPAD_LEFT_B_MASK)
+#define JOYPAD_RIGHT_A_MASK    (1 << JOYPAD_RIGHT_A_MASK)
+
 static void
 handle_interrupts()
 {
-   if(ime && (read_memory(REGISTER_IE) & read_memory(REGISTER_IF)))
+   if(ime && (read_memory(REGISTER_IE_ADDRESS) & read_memory(REGISTER_IF_ADDRESS)))
    {
       // NOTE(law): Disable interrupts for the duration of the handler.
       ime = false;
@@ -3256,7 +3262,7 @@ handle_interrupts()
       u32 bit_index = 0;
       for(; bit_index <= 4; ++bit_index)
       {
-         if((REGISTER_IF >> bit_index) & 0x1)
+         if((REGISTER_IF_ADDRESS >> bit_index) & 0x1)
          {
             break;
          }
@@ -3264,7 +3270,8 @@ handle_interrupts()
       assert(bit_index <= 4);
 
       // NOTE(law): Reset the bit of the interrupt we plan to handle.
-      write_memory(REGISTER_IF, read_memory(REGISTER_IF & ~(1 << bit_index)));
+      u8 register_if = read_memory(REGISTER_IF_ADDRESS) & ~(1 << bit_index);
+      write_memory(REGISTER_IF_ADDRESS, register_if);
 
       // TODO(law): Wait for two cycles using NOPs.
 
@@ -3275,21 +3282,6 @@ handle_interrupts()
       registers.pc = isr_addresses[bit_index];
    }
 }
-
-#define RESOLUTION_BASE_WIDTH 160
-#define RESOLUTION_BASE_HEIGHT 144
-
-#define TILE_PIXEL_DIM 8
-#define TILES_PER_SCREEN_WIDTH  (RESOLUTION_BASE_WIDTH  / TILE_PIXEL_DIM)
-#define TILES_PER_SCREEN_HEIGHT (RESOLUTION_BASE_HEIGHT / TILE_PIXEL_DIM)
-
-#define VRAM_TILE_BLOCK_0 0x8000
-#define VRAM_TILE_BLOCK_1 0x8800
-#define VRAM_TILE_BLOCK_2 0x9000
-
-#define PALETTE_DATA_BG   0xFF47
-#define PALETTE_DATA_OBJ0 0xFF48
-#define PALETTE_DATA_OBJ1 0xFF49
 
 struct pixel_bitmap
 {
@@ -3307,7 +3299,11 @@ enum monochrome_color_scheme
    MONOCHROME_COLOR_SCHEME_COUNT,
 };
 
-u32 monochrome_color_schemes[][5] =
+// NOTE(law): Update the global color scheme from platform code, since each
+// platform might want to handle the necessary UI differently.
+static enum monochrome_color_scheme gem_global_color_scheme;
+
+static u32 monochrome_color_schemes[][5] =
 {
    // NOTE(law): The value at index 4 of each color scheme is the color of the
    // LCD when the display is disabled. It is not actually used by the palette.
@@ -3316,8 +3312,6 @@ u32 monochrome_color_schemes[][5] =
    {0xFFE0DBCD, 0xFFA89F94, 0xFF706B66, 0xFF2B2B26, 0xFFBDB890}, // MGB
    {0xFF65F2BA, 0xFF39C28C, 0xFF30B37F, 0xFF0E7F54, 0xFFBDB890}, // LIGHT
 };
-
-static enum monochrome_color_scheme gem_global_color_scheme;
 
 static u32
 get_display_off_color()
@@ -3365,45 +3359,97 @@ clear_scanline(struct pixel_bitmap *bitmap, u32 scanline, u32 color)
    }
 }
 
+#define RESOLUTION_BASE_WIDTH 160
+#define RESOLUTION_BASE_HEIGHT 144
+
+#define TILE_PIXEL_DIM 8
+#define TILEMAP_TILE_DIM 32
+#define TILES_PER_SCREEN_WIDTH  (RESOLUTION_BASE_WIDTH  / TILE_PIXEL_DIM)
+#define TILES_PER_SCREEN_HEIGHT (RESOLUTION_BASE_HEIGHT / TILE_PIXEL_DIM)
+
+#define VRAM_TILE_BLOCK_0 0x8000
+#define VRAM_TILE_BLOCK_1 0x8800
+#define VRAM_TILE_BLOCK_2 0x9000
+
+#define PALETTE_DATA_BG   0xFF47
+#define PALETTE_DATA_OBJ0 0xFF48
+#define PALETTE_DATA_OBJ1 0xFF49
+
+#define LCD_PPU_ENABLED      ((register_lcdc >> 7) & 0x1) // 0=Off, 1=On
+#define WINDOW_TILE_MAP_AREA ((register_lcdc >> 6) & 0x1) // 0=9800-9BFF, 1=9C00-9FFF
+#define WINDOW_ENABLED       ((register_lcdc >> 5) & 0x1) // 0=Off, 1=On
+#define USE_8000_ADDRESSING  ((register_lcdc >> 4) & 0x1) // 0=8800-97FF, 1=8000-8FFF
+#define BG_TILE_MAP_AREA     ((register_lcdc >> 3) & 0x1) // 0=9800-9BFF, 1=9C00-9FFF
+#define OBJECT_SIZE_8X16     ((register_lcdc >> 2) & 0x1) // 0=8x8, 1=8x16
+#define OBJECTS_ENABLED      ((register_lcdc >> 1) & 0x1) // 0=Off, 1=On
+#define BG_WINDOW_ENABLED    ((register_lcdc >> 0) & 0x1) // 0=Off, 1=On
+
+#define BYTES_PER_TILE_SCANLINE 2
+#define BYTES_PER_TILE (BYTES_PER_TILE_SCANLINE * TILE_PIXEL_DIM)
+
 static void
-render_vram_scanline(struct pixel_bitmap *bitmap, u32 scanline)
+render_scanline(struct pixel_bitmap *bitmap, u16 scanline)
 {
+   // TODO(law): Implement the full pixel FIFO with sprite and window support.
+
+   // TODO(law): Optimize pixel fill!
+
+   u8 register_lcdc = read_memory(0xFF40);
+
    u32 palette[4];
-   u16 palette_address = PALETTE_DATA_BG;
-   get_palette(palette, palette_address);
+   get_palette(palette, PALETTE_DATA_BG);
 
    clear_scanline(bitmap, scanline, palette[0]);
 
-   u32 tile_offset = 0;
-   u8 *tiles = map.vram.memory + (tile_offset * 16);
-
-   u32 tile_y = scanline / TILE_PIXEL_DIM;
-   u32 pixel_y = scanline % TILE_PIXEL_DIM;
-
-   for(u32 tile_x = 0; tile_x < TILES_PER_SCREEN_WIDTH; ++tile_x)
+   for(u16 screen_tile_x = 0; screen_tile_x < TILES_PER_SCREEN_WIDTH; ++screen_tile_x)
    {
-      u32 tile_index = (TILES_PER_SCREEN_WIDTH * tile_y) + tile_x;
-      u8 *tile = tiles + (2 * tile_index * TILE_PIXEL_DIM);
-
-      u8 byte0 = tile[(2 * pixel_y) + 0];
-      u8 byte1 = tile[(2 * pixel_y) + 1];
-
-      for(u32 pixel_x = 0; pixel_x < TILE_PIXEL_DIM; ++pixel_x)
+      for(u16 tile_pixel_x = 0; tile_pixel_x < TILE_PIXEL_DIM; ++tile_pixel_x)
       {
-         u32 bit_offset = TILE_PIXEL_DIM - 1 - pixel_x;
-         u8 low_bit  = (byte0 >> bit_offset) & 0x1;
+         u8 viewport_x = read_memory(0xFF43);
+         u8 viewport_y = read_memory(0xFF42);
+
+         u16 destination_pixel_x = (screen_tile_x * TILE_PIXEL_DIM) + tile_pixel_x; // 0-159
+         u16 destination_pixel_y = scanline; // 0-143
+
+         u16 source_pixel_x = viewport_x + destination_pixel_x;
+         u16 source_pixel_y = viewport_y + destination_pixel_y;
+
+         u16 source_tile_x = (source_pixel_x / TILE_PIXEL_DIM) & 0x1F; // 0-31
+         u16 source_tile_y = (source_pixel_y / TILE_PIXEL_DIM) & 0x1F; // 0-31
+
+         u16 source_pixel_offset_x = source_pixel_x % TILE_PIXEL_DIM; // 0-7
+         u16 source_pixel_offset_y = source_pixel_y % TILE_PIXEL_DIM; // 0-7
+
+         u16 tilemap_address_base = (BG_TILE_MAP_AREA) ? 0x9C00 : 0x9800;
+         u16 tilemap_address_offset = (source_tile_y * TILEMAP_TILE_DIM) + source_tile_x;
+
+         u16 tile_index_address = tilemap_address_base + tilemap_address_offset;
+         u8 tile_index = read_memory(tile_index_address);
+
+         u16 tile_address = 0;
+         if(USE_8000_ADDRESSING)
+         {
+            u16 offset = tile_index * BYTES_PER_TILE;
+            tile_address = 0x8000 + offset;
+         }
+         else
+         {
+            s32 offset = (s32)tile_index * BYTES_PER_TILE;
+            tile_address = (u16)((s32)0x9000 + offset);
+         }
+         assert(tile_address > 0);
+
+         u8 byte0 = read_memory((tile_address + source_pixel_offset_y * 2) + 0);
+         u8 byte1 = read_memory((tile_address + source_pixel_offset_y * 2) + 1);
+
+         u32 bit_offset = TILE_PIXEL_DIM - 1 - tile_pixel_x;
+         u8 low_bit = (byte0 >> bit_offset) & 0x1;
          u8 high_bit = (byte1 >> bit_offset) & 0x1;
 
          u32 color_index = (high_bit << 1) | low_bit;
+         u32 bitmap_index = (bitmap->width * destination_pixel_y) + destination_pixel_x;
 
-         u32 bitmap_y = (tile_y * TILE_PIXEL_DIM) + pixel_y;
-         u32 bitmap_x = (tile_x * TILE_PIXEL_DIM) + pixel_x;
-
-         bool is_object = (palette_address == PALETTE_DATA_OBJ1 || palette_address == PALETTE_DATA_OBJ0);
-         if(!(is_object && color_index == 0))
-         {
-            bitmap->memory[(bitmap->width * bitmap_y) + bitmap_x] = palette[color_index];
-         }
+         bitmap->memory[bitmap_index] = palette[color_index];
       }
    }
 }
@@ -3739,7 +3785,7 @@ cpu_tick(struct cycle_clocks *clocks, struct pixel_bitmap *bitmap, struct sound_
       u8 scanline = read_memory(0xFF44);
       if(scanline < 144)
       {
-         render_vram_scanline(bitmap, scanline);
+         render_scanline(bitmap, scanline);
       }
 
       if(++scanline > 153)
