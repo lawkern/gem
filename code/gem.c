@@ -196,6 +196,19 @@ zero_memory(void *memory, size_t size)
    }
 }
 
+static void
+copy_memory(void *destination, void *source, size_t size)
+{
+   // TODO(law): Speed this up!
+
+   u8 *destination_byte = destination;
+   u8 *source_byte = source;
+   while(size--)
+   {
+      *destination_byte++ = *source_byte++;
+   }
+}
+
 static u16
 endian_swap16(u16 value)
 {
@@ -758,7 +771,7 @@ load_cartridge(struct memory_arena *arena, char *file_path)
    for(u32 bank_index = 0; bank_index < map.rom_bank_count; ++bank_index)
    {
       size_t size = map.rom_banks[bank_index].size;
-      memcpy(map.rom_banks[bank_index].memory, source, size);
+      copy_memory(map.rom_banks[bank_index].memory, source, size);
       source += size;
    }
 

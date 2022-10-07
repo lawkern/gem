@@ -16,7 +16,6 @@
 #include <GL/glu.h>
 
 #include <stdarg.h>
-#include <string.h>
 #include <time.h>
 
 #include "gem.c"
@@ -386,11 +385,7 @@ static Window
 linux_create_window(struct pixel_bitmap bitmap, XVisualInfo *visual_info)
 {
    Display *display = linux_global_display;
-   if(!display)
-   {
-      platform_log("X11 failed to open a display.\n");
-      exit(EXIT_FAILURE);
-   }
+   assert(display);
 
    Window root = DefaultRootWindow(display);
 
@@ -436,11 +431,7 @@ linux_create_window(struct pixel_bitmap bitmap, XVisualInfo *visual_info)
                                  attribute_mask,
                                  &window_attributes);
 
-   if(!window)
-   {
-      platform_log("X11 failed to open a display.\n");
-      exit(EXIT_FAILURE);
-   }
+   assert(window);
 
    XStoreName(display, window, "Game Boy Emulator (GEM)");
 
@@ -468,11 +459,8 @@ linux_initialize_opengl(struct pixel_bitmap bitmap)
 
    int error_base;
    int event_base;
-   if(!glXQueryExtension(display, &error_base, &event_base))
-   {
-      platform_log("ERROR: glX Extensions not supported.\n");
-      exit(EXIT_FAILURE);
-   }
+   Bool glx_is_supported = glXQueryExtension(display, &error_base, &event_base);
+   assert(glx_is_supported);
 
    // NOTE(law): Get glX frame buffer configuration.
    int configuration_attributes[] =
@@ -519,11 +507,7 @@ linux_initialize_opengl(struct pixel_bitmap bitmap)
 
    XFree(configurations);
 
-   if(!found_valid_configuration)
-   {
-      platform_log("ERROR: glX failed to find a suitable framebuffer configuration.\n");
-      exit(EXIT_FAILURE);
-   }
+   assert(found_valid_configuration);
 
    XVisualInfo *visual_info = glXGetVisualFromFBConfig(display, configuration);
    Window window = linux_create_window(bitmap, visual_info);
@@ -531,11 +515,7 @@ linux_initialize_opengl(struct pixel_bitmap bitmap)
    typedef GLXContext CCA(Display *, GLXFBConfig, GLXContext, Bool, const int *);
    CCA *glXCreateContextAttribsARB = (CCA *)glXGetProcAddressARB((const GLubyte *)"glXCreateContextAttribsARB");
 
-   if(!glXCreateContextAttribsARB)
-   {
-      platform_log("ERROR: glXCreateContextAttribsARB could not be retrieved.\n");
-      exit(EXIT_FAILURE);
-   }
+   assert(glXCreateContextAttribsARB);
 
    s32 context_attributes[] =
    {
@@ -549,17 +529,10 @@ linux_initialize_opengl(struct pixel_bitmap bitmap)
    };
 
    GLXContext gl_context = glXCreateContextAttribsARB(display, configuration, 0, True, context_attributes);
-   if(!gl_context)
-   {
-      platform_log("ERROR: glX failed to create the glX context.");
-      exit(EXIT_FAILURE);
-   }
+   assert(gl_context);
 
-   if(glXMakeCurrent(display, window, gl_context) == False)
-   {
-      platform_log("ERROR: glX failed to attach the glX context.");
-      exit(EXIT_FAILURE);
-   }
+   Bool context_attached = glXMakeCurrent(display, window, gl_context);
+   assert(context_attached);
 
    // TODO(law): Load other GL functions here as necessary.
 
