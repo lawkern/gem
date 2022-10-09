@@ -34,6 +34,8 @@ struct platform_file
    u8 *memory;
 };
 
+#define PLATFORM_LOG_MAX_LENGTH 1024
+
 #define PLATFORM_LOG(name) void name(char *format, ...)
 #define PLATFORM_FREE_FILE(name) void name(struct platform_file *file)
 #define PLATFORM_LOAD_FILE(name) struct platform_file name(char *file_path)

@@ -60,7 +60,7 @@ enum
 static
 PLATFORM_LOG(platform_log)
 {
-   char message[1024];
+   char message[PLATFORM_LOG_MAX_LENGTH];
 
    va_list arguments;
    va_start(arguments, format);

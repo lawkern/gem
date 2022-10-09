@@ -19,6 +19,7 @@
 #include <time.h>
 
 #include "gem.c"
+#include "renderer_opengl.c"
 
 struct linux_window_dimensions
 {
@@ -36,7 +37,7 @@ static Display *linux_global_display;
 static
 PLATFORM_LOG(platform_log)
 {
-   char message[1024];
+   char message[PLATFORM_LOG_MAX_LENGTH];
 
    va_list arguments;
    va_start(arguments, format);
@@ -152,99 +153,6 @@ linux_set_resolution_scale(Window window, u32 scale)
    u32 height = RESOLUTION_BASE_HEIGHT << scale;
 
    XResizeWindow(linux_global_display, window, width, height);
-}
-
-static void
-linux_display_bitmap(Window window, struct pixel_bitmap bitmap)
-{
-   // NOTE(law): Set up the viewport size.
-   struct linux_window_dimensions dimensions;
-   linux_get_window_dimensions(window, &dimensions);
-
-   float client_width = (float)dimensions.width;
-   float client_height = (float)dimensions.height;
-
-   float client_aspect_ratio = client_width / client_height;
-   float target_aspect_ratio = (float)RESOLUTION_BASE_WIDTH / (float)RESOLUTION_BASE_HEIGHT;
-
-   float target_width  = client_width;
-   float target_height = client_height;
-   float gutter_width  = 0;
-   float gutter_height = 0;
-
-   if(client_aspect_ratio > target_aspect_ratio)
-   {
-      // NOTE(law): The window is too wide, fill in the left and right sides
-      // with black gutters.
-      target_width = target_aspect_ratio * (float)client_height;
-      gutter_width = (client_width - target_width) / 2;
-   }
-   else if(client_aspect_ratio < target_aspect_ratio)
-   {
-      // NOTE(law): The window is too tall, fill in the top and bottom with
-      // black gutters.
-      target_height = (1.0f / target_aspect_ratio) * (float)client_width;
-      gutter_height = (client_height - target_height) / 2;
-   }
-
-   glViewport(gutter_width, gutter_height, target_width, target_height);
-
-   // NOTE(law): Set up the pixel bitmap as an OpenGL texture.
-   glBindTexture(GL_TEXTURE_2D, 1);
-   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, bitmap.width, bitmap.height, 0,
-                GL_BGRA_EXT, GL_UNSIGNED_BYTE, bitmap.memory);
-
-   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP);
-
-   glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-   glEnable(GL_TEXTURE_2D);
-
-   // NOTE(law): Set up the matrix modes.
-   glMatrixMode(GL_TEXTURE);
-   glLoadIdentity();
-
-   glMatrixMode(GL_MODELVIEW);
-   glLoadIdentity();
-
-   glMatrixMode(GL_PROJECTION);
-   glLoadIdentity();
-
-   // NOTE(law): Clear the window to black.
-   glClearColor(0, 0, 0, 1);
-   glClear(GL_COLOR_BUFFER_BIT);
-
-   glBegin(GL_TRIANGLES);
-   {
-      // NOTE(law): The source bitmap is top-down, so just reverse the y texture
-      // coordinates for now to match the bottom-up convention of OpenGL.
-
-      // NOTE(law): Lower triangle.
-      glTexCoord2f(0, 1);
-      glVertex2f(-1, -1);
-
-      glTexCoord2f(1, 1);
-      glVertex2f(1, -1);
-
-      glTexCoord2f(1, 0);
-      glVertex2f(1, 1);
-
-      // NOTE(law): Upper triangle.
-      glTexCoord2f(0, 1);
-      glVertex2f(-1, -1);
-
-      glTexCoord2f(1, 0);
-      glVertex2f(1, 1);
-
-      glTexCoord2f(0, 0);
-      glVertex2f(-1, 1);
-   }
-   glEnd();
-
-   glXSwapBuffers(linux_global_display, window);
 }
 
 static Window
@@ -370,27 +278,32 @@ linux_initialize_opengl(struct pixel_bitmap bitmap)
          }
       }
    }
-
-   XFree(configurations);
-
    assert(found_valid_configuration);
+   XFree(configurations);
 
    XVisualInfo *visual_info = glXGetVisualFromFBConfig(display, configuration);
    Window window = linux_create_window(bitmap, visual_info);
 
-   typedef GLXContext CCA(Display *, GLXFBConfig, GLXContext, Bool, const int *);
-   CCA *glXCreateContextAttribsARB = (CCA *)glXGetProcAddressARB((const GLubyte *)"glXCreateContextAttribsARB");
+   // NOTE(law): Load any Linux-specific OpenGL functions we need.
+   typedef GLXContext opengl_function_glXCreateContextAttribsARB(Display *, GLXFBConfig, GLXContext, Bool, const int *);
+   typedef       void opengl_function_glXSwapIntervalEXT(Display *, GLXDrawable, int);
+
+   DECLARE_OPENGL_FUNCTION(glXCreateContextAttribsARB);
+   DECLARE_OPENGL_FUNCTION(glXSwapIntervalEXT);
+
+   LINUX_LOAD_OPENGL_FUNCTION(glXCreateContextAttribsARB);
+   LINUX_LOAD_OPENGL_FUNCTION(glXSwapIntervalEXT);
 
    assert(glXCreateContextAttribsARB);
 
    s32 context_attributes[] =
    {
       GLX_CONTEXT_MAJOR_VERSION_ARB, 3,
-      GLX_CONTEXT_MINOR_VERSION_ARB, 0,
+      GLX_CONTEXT_MINOR_VERSION_ARB, 3,
 #if DEVELOPMENT_BUILD
       GLX_CONTEXT_FLAGS_ARB, GLX_CONTEXT_DEBUG_BIT_ARB,
 #endif
-      GLX_CONTEXT_PROFILE_MASK_ARB, GLX_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB,
+      GLX_CONTEXT_PROFILE_MASK_ARB, GLX_CONTEXT_CORE_PROFILE_BIT_ARB,
       None
    };
 
@@ -400,23 +313,42 @@ linux_initialize_opengl(struct pixel_bitmap bitmap)
    Bool context_attached = glXMakeCurrent(display, window, gl_context);
    assert(context_attached);
 
-   // TODO(law): Load other GL functions here as necessary.
-
-   typedef void GLXSI(Display *dpy, GLXDrawable drawable, int interval);
-   GLXSI *glXSwapIntervalEXT = (GLXSI *)glXGetProcAddressARB((const GLubyte *)"glXSwapIntervalEXT");
-
+   // NOTE(law): If we have access to vsync through glX, try to turn it on.
    if(glXSwapIntervalEXT)
    {
-      bool is_vsync_enabled = true;
-      glXSwapIntervalEXT(display, window, is_vsync_enabled ? 1 : 0);
+      // TODO(law): Make it possible to toggle vsync.
+      glXSwapIntervalEXT(display, window, 1);
    }
 
-   s32 glx_major_version;
-   s32 glx_minor_version;
+   int glx_major_version;
+   int glx_minor_version;
    glXQueryVersion(display, &glx_major_version, &glx_minor_version);
-   platform_log("glX version %d.%d\n", glx_major_version, glx_minor_version);
+
+   platform_log("=====\n");
+   platform_log("Version (glX): %d.%d\n", glx_major_version, glx_minor_version);
+   platform_log("=====\n");
+
+   // NOTE(law): Load any OpenGL function pointers that we don't expect to have
+   // by default before initializing the platform-independent OpenGL code.
+#define X(name) LINUX_LOAD_OPENGL_FUNCTION(name);
+   OPENGL_FUNCTION_POINTERS;
+#undef X
+
+   // NOTE(law): Initialize the platform-independent side of OpenGL.
+   opengl_initialize();
 
    return(window);
+}
+
+static void
+linux_display_bitmap(Window window, struct pixel_bitmap bitmap)
+{
+   struct linux_window_dimensions dimensions;
+   linux_get_window_dimensions(window, &dimensions);
+
+   opengl_display_bitmap(&bitmap, dimensions.width, dimensions.height);
+
+   glXSwapBuffers(linux_global_display, window);
 }
 
 static void
@@ -572,7 +504,7 @@ linux_process_events(Window window)
 
          default:
          {
-            platform_log("Unhandled X11 event.\n");
+            // platform_log("Unhandled X11 event.\n");
          } break;
       }
    }
