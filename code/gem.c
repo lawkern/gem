@@ -3323,9 +3323,9 @@ static u32 monochrome_color_schemes[][5] =
    // NOTE(law): The value at index 4 of each color scheme is the color of the
    // LCD when the display is disabled. It is not actually used by the palette.
 
-   {0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820, 0xFFACC480}, // DMG
-   {0xFFE0DBCD, 0xFFA89F94, 0xFF706B66, 0xFF2B2B26, 0xFFBDB890}, // MGB
-   {0xFF65F2BA, 0xFF39C28C, 0xFF30B37F, 0xFF0E7F54, 0xFFBDB890}, // LIGHT
+   {0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820, 0xFFFFFFFF}, // 0xFFACC480}, // DMG
+   {0xFFE0DBCD, 0xFFA89F94, 0xFF706B66, 0xFF2B2B26, 0xFFFFFFFF}, // 0xFFBDB890}, // MGB
+   {0xFF65F2BA, 0xFF39C28C, 0xFF30B37F, 0xFF0E7F54, 0xFFFFFFFF}, // 0xFFBDB890}, // LIGHT
 };
 
 static u32

@@ -82,7 +82,7 @@ win32_allocate(SIZE_T size)
 static void
 win32_free(VOID *memory)
 {
-   if(!VirtualFree(memory, 0, MEM_DECOMMIT|MEM_RELEASE))
+   if(!VirtualFree(memory, 0, MEM_RELEASE))
    {
       platform_log("Failed to free virtual memory.\n");
    }
@@ -91,7 +91,11 @@ win32_free(VOID *memory)
 static
 PLATFORM_FREE_FILE(platform_free_file)
 {
-   win32_free(file->memory);
+   if(file->memory)
+   {
+      win32_free(file->memory);
+   }
+
    ZeroMemory(file, sizeof(*file));
 }
 
@@ -237,19 +241,19 @@ win32_is_fullscreen(HWND window)
 static u32
 win32_get_toolbar_height(HWND window)
 {
-   u32 result = 0;
-
    // TODO(law): Determine if this query is too slow to process every frame.
 
-   // NOTE(law): The rebar window contains the toolbar, and should be used to
-   // calculate its height.
-   HWND toolbar = GetDlgItem(window, WIN32_REBAR);
-   if(IsWindowVisible(toolbar))
-   {
-      RECT rect = {0};
-      GetWindowRect(toolbar, &rect);
+   u32 result = 0;
 
-      result += rect.bottom - rect.top;
+   if(!win32_is_fullscreen(window))
+   {
+      // NOTE(law): The rebar window contains the toolbar, and should be used to
+      // calculate its height.
+
+      RECT window_rect;
+      GetWindowRect(GetDlgItem(window, WIN32_REBAR), &window_rect);
+
+      result += window_rect.bottom - window_rect.top;
    }
 
    return(result);
@@ -258,16 +262,16 @@ win32_get_toolbar_height(HWND window)
 static u32
 win32_get_status_height(HWND window)
 {
+   // TODO(law): Determine if this query is too slow to process every frame.
+
    u32 result = 0;
 
-   // TODO(law): Determine if this query is too slow to process every frame.
-   HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
-   if(IsWindowVisible(status_bar))
+   if(!win32_is_fullscreen(window))
    {
-      RECT rect = {0};
-      GetWindowRect(status_bar, &rect);
+      RECT window_rect;
+      GetWindowRect(GetDlgItem(window, WIN32_STATUS_BAR), &window_rect);
 
-      result += rect.bottom - rect.top;
+      result += window_rect.bottom - window_rect.top;
    }
 
    return(result);
@@ -318,38 +322,46 @@ win32_display_bitmap(struct pixel_bitmap bitmap, HWND window, HDC device_context
    float client_aspect_ratio = (float)client_width / (float)client_height;
    float target_aspect_ratio = (float)RESOLUTION_BASE_WIDTH / (float)RESOLUTION_BASE_HEIGHT;
 
-   s32 target_width  = client_width;
-   s32 target_height = client_height;
-   s32 gutter_width  = 0;
-   s32 gutter_height = 0;
+   float target_width  = (float)client_width;
+   float target_height = (float)client_height;
+   float gutter_width  = 0;
+   float gutter_height = 0;
 
    if(client_aspect_ratio > target_aspect_ratio)
    {
       // NOTE(law): The window is too wide, fill in the left and right sides
       // with black gutters.
-
-      target_width = (int)(target_aspect_ratio * (float)client_height);
-      target_height = client_height;
+      target_width = target_aspect_ratio * client_height;
       gutter_width = (client_width - target_width) / 2;
-
-      PatBlt(device_context, 0, toolbar_height, gutter_width, target_height, BLACKNESS);
-      PatBlt(device_context, client_width - gutter_width, toolbar_height, gutter_width, target_height, BLACKNESS);
    }
    else if(client_aspect_ratio < target_aspect_ratio)
    {
       // NOTE(law): The window is too tall, fill in the top and bottom with
       // black gutters.
-
-      target_width = client_width;
-      target_height = (int)((1.0f / target_aspect_ratio) * (float)client_width);
+      target_height = (1.0f / target_aspect_ratio) * client_width;
       gutter_height = (client_height - target_height) / 2;
-
-      PatBlt(device_context, 0, toolbar_height, target_width, gutter_height, BLACKNESS);
-      PatBlt(device_context, 0, toolbar_height + client_height - gutter_height, target_width, gutter_height, BLACKNESS);
    }
 
+   if(client_aspect_ratio > target_aspect_ratio)
+   {
+      // NOTE(law): The window is too wide, fill in the left and right sides
+      // with black gutters.
+      PatBlt(device_context, 0, toolbar_height, (int)gutter_width, (int)target_height, BLACKNESS);
+      PatBlt(device_context, (int)(client_width - gutter_width), toolbar_height, (int)gutter_width, (int)target_height, BLACKNESS);
+   }
+   else if(client_aspect_ratio < target_aspect_ratio)
+   {
+      // NOTE(law): The window is too tall, fill in the top and bottom with
+      // black gutters.
+      PatBlt(device_context, 0, toolbar_height, (int)target_width, (int)gutter_height, BLACKNESS);
+      PatBlt(device_context, 0, toolbar_height + (int)(client_height - gutter_height), (int)target_width, (int)gutter_height, BLACKNESS);
+   }
+
+   int target_x = (int)gutter_width;
+   int target_y = (int)(gutter_height + toolbar_height);
+
    StretchDIBits(device_context,
-                 gutter_width, gutter_height + toolbar_height, target_width, target_height, // Destination
+                 target_x, target_y, (int)target_width, (int)target_height, // Destination
                  0, 0, bitmap.width, bitmap.height, // Source
                  bitmap.memory, win32_global_bitmap_info, DIB_RGB_COLORS, SRCCOPY);
 }
@@ -654,6 +666,11 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 
          // NOTE(law): Create window status bar.
          CreateWindow(STATUSCLASSNAME, 0, WS_CHILD|WS_VISIBLE, 0, 0, 0, 0, window, (HMENU)WIN32_STATUS_BAR, GetModuleHandle(0), 0);
+
+         // NOTE(law): Set the initial window size based on the scale of the
+         // client bitmap area once the various pieces of Win32 UI have been
+         // created.
+         win32_set_resolution_scale(window, 1);
       } break;
 
       case WM_SIZE:
@@ -666,7 +683,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 
          HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
          SendMessage(status_bar, WM_SIZE, 0, 0);
-      }
+      } break;
 
       case WM_COMMAND:
       {
@@ -885,10 +902,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
       {
          PAINTSTRUCT paint;
          HDC device_context = BeginPaint(window, &paint);
-
-         struct pixel_bitmap bitmap = *win32_global_bitmap;
-         win32_display_bitmap(bitmap, window, device_context);
-
+         win32_display_bitmap(*win32_global_bitmap, window, device_context);
          ReleaseDC(window, device_context);
       } break;
 
@@ -969,6 +983,8 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
       return(1);
    }
 
+   clear(&bitmap, get_display_off_color(gem_global_color_scheme));
+
    BITMAPINFOHEADER bitmap_header = {0};
    bitmap_header.biSize = sizeof(BITMAPINFOHEADER);
    bitmap_header.biWidth = bitmap.width;
@@ -986,13 +1002,6 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    ShowWindow(window, show_command);
    UpdateWindow(window);
 
-   // NOTE(law): Set the window size after creating and showing the window to
-   // ensure the status bar both exists and its parent window is visible (for
-   // the IsWindowVisible check during height calculation). This allows the
-   // status bar height to be properly accounted for and prevents it from
-   // occluding some of the client area we intend to use.
-   win32_set_resolution_scale(window, 1);
-
    // NOTE(law): Initialize sound.
    struct win32_sound_output sound_output;
    win32_initialize_sound(&sound_output, window);
@@ -1008,14 +1017,14 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
    // NOTE(law): Attempt to load a ROM in case a path to one was provided as the
    // command line argument.
-   win32_load_cartridge(&arena, window, command_line);
+   if(command_line[0])
+   {
+      win32_load_cartridge(&arena, window, command_line);
+   }
 
    float frame_seconds_elapsed = 0;
    float target_seconds_per_frame = 1.0f / VERTICAL_SYNC_HZ;
    u32 target_cycles_per_frame = (u32)(CPU_HZ / VERTICAL_SYNC_HZ);
-
-   u32 clear_color = get_display_off_color(gem_global_color_scheme);
-   clear(&bitmap, clear_color);
 
    struct cycle_clocks clocks = {0};
 
@@ -1034,8 +1043,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
 
       if(!map.load_complete)
       {
-         clear_color = get_display_off_color(gem_global_color_scheme);
-         clear(&bitmap, clear_color);
+         clear(&bitmap, get_display_off_color(gem_global_color_scheme));
       }
 
       if(!map.load_complete || win32_global_is_paused)
