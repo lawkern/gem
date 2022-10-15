@@ -18,6 +18,8 @@
 #include <dsound.h>
 #include <stdarg.h>
 
+#include "platform_win32.h"
+
 #include "gem.c"
 
 #define WIN32_SECONDS_ELAPSED(start, end) ((float)((end).QuadPart - (start).QuadPart) \
@@ -31,30 +33,23 @@ static struct memory_arena *win32_global_arena;
 static struct pixel_bitmap *win32_global_bitmap;
 static BITMAPINFO *win32_global_bitmap_info;
 
+#define WIN32_DEFAULT_DPI 96
+static int win32_global_dpi = WIN32_DEFAULT_DPI;
 static HMENU win32_global_menu;
+
 static WINDOWPLACEMENT win32_global_previous_window_placement =
 {
    sizeof(win32_global_previous_window_placement)
 };
 
-enum
+static HIMAGELIST win32_global_toolbar_image_list24;
+static HIMAGELIST win32_global_toolbar_image_list48;
+static TBBUTTON win32_global_toolbar_buttons[] =
 {
-   WIN32_MENU_FILE_OPEN = 9001,
-   WIN32_MENU_FILE_CLOSE,
-   WIN32_MENU_FILE_EXIT,
-   WIN32_MENU_VIEW_COLOR_DMG,
-   WIN32_MENU_VIEW_COLOR_MGB,
-   WIN32_MENU_VIEW_COLOR_LIGHT,
-   WIN32_MENU_VIEW_RESOLUTION_1X,
-   WIN32_MENU_VIEW_RESOLUTION_2X,
-   WIN32_MENU_VIEW_RESOLUTION_4X,
-   WIN32_MENU_VIEW_RESOLUTION_8X,
-   WIN32_MENU_VIEW_FULLSCREEN,
-   WIN32_MENU_CONTROL_PLAY,
-   WIN32_MENU_CONTROL_PAUSE,
-   WIN32_TOOLBAR,
-   WIN32_REBAR,
-   WIN32_STATUS_BAR,
+   {0, WIN32_MENU_FILE_OPEN, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)TEXT("Open")},
+   {1, WIN32_MENU_CONTROL_PLAY, 0, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)TEXT("Play")},
+   {2, WIN32_MENU_CONTROL_PAUSE, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)TEXT("Pause")},
+   {3, WIN32_MENU_VIEW_FULLSCREEN, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)TEXT("Fullscreen")},
 };
 
 static
@@ -278,18 +273,46 @@ win32_get_status_height(HWND window)
 }
 
 static void
+win32_adjust_window_rect(RECT *window_rect)
+{
+   bool dpi_supported = false;
+   DWORD window_style = WS_OVERLAPPEDWINDOW;
+
+   // NOTE(law): Try to use the Windows 10 API for a DPI-aware window adjustment.
+   HMODULE library = LoadLibrary(TEXT("user32.dll"));
+   if(library)
+   {
+      // TODO(law) Cache the function pointer so the library doesn't need to be
+      // reloaded on every resolution update.
+
+      typedef BOOL AWREFD(LPRECT, DWORD, BOOL, DWORD, UINT);
+      AWREFD *AdjustWindowRectExForDpi = (AWREFD *)GetProcAddress(library, "AdjustWindowRectExForDpi");
+      if(AdjustWindowRectExForDpi)
+      {
+         AdjustWindowRectExForDpi(window_rect, window_style, true, 0, win32_global_dpi);
+         dpi_supported = true;
+      }
+
+      FreeLibrary(library);
+   }
+
+   if(!dpi_supported)
+   {
+      AdjustWindowRect(window_rect, window_style, true);
+   }
+}
+
+static void
 win32_set_resolution_scale(HWND window, u32 scale)
 {
    // NOTE(law): Prevent updating the resolution if the window is currently in
    // fullscreen mode.
    if(!win32_is_fullscreen(window))
    {
-      DWORD window_style = WS_OVERLAPPEDWINDOW;
-
       RECT window_rect = {0};
       window_rect.bottom = RESOLUTION_BASE_HEIGHT << scale;
       window_rect.right  = RESOLUTION_BASE_WIDTH  << scale;
-      AdjustWindowRect(&window_rect, window_style, true);
+      win32_adjust_window_rect(&window_rect);
 
       u32 window_width  = window_rect.right - window_rect.left;
       u32 window_height = window_rect.bottom - window_rect.top;
@@ -586,6 +609,118 @@ win32_set_pause_state(HWND window, bool paused)
    }
 }
 
+static int
+win32_get_window_dpi(HWND window)
+{
+   int result = 0;
+
+   // NOTE(law): Try to use the Windows 8.1 API to get the monitor's DPI.
+   HMODULE library = LoadLibrary(TEXT("shcore.lib"));
+   if(library)
+   {
+      typedef HRESULT GDFM(HMONITOR, int, UINT *, UINT *);
+      GDFM *GetDpiForMonitor = (GDFM *)GetProcAddress(library, "GetDpiForMonitor");
+
+      if(GetDpiForMonitor)
+      {
+         HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
+
+         UINT dpi_x, dpi_y;
+         if(SUCCEEDED(GetDpiForMonitor(monitor, 0, &dpi_x, &dpi_y)))
+         {
+            result = dpi_x;
+         }
+      }
+
+      FreeLibrary(library);
+   }
+
+   if(!result)
+   {
+      // NOTE(law): If we don't have access to the Windows 8.1 API, just grab the
+      // DPI off the primary monitor.
+      HDC device_context = GetDC(0);
+      result = GetDeviceCaps(device_context, LOGPIXELSX);
+      ReleaseDC(0, device_context);
+   }
+
+   assert(result);
+
+   return(result);
+}
+
+static void
+win32_select_color_scheme(HWND window, enum monochrome_color_scheme scheme)
+{
+   if(scheme >= MONOCHROME_COLOR_SCHEME_COUNT)
+   {
+      scheme = 0;
+   }
+
+   gem_global_color_scheme = scheme;
+   CheckMenuRadioItem(win32_global_menu,
+                      WIN32_MENU_VIEW_COLOR_DMG,
+                      WIN32_MENU_VIEW_COLOR_LIGHT,
+                      WIN32_MENU_VIEW_COLOR_DMG + scheme,
+                      MF_BYCOMMAND);
+}
+
+static void
+win32_create_toolbar(HWND window)
+{
+   // TODO(law): Determine if there is a better way to repopulate toolbar
+   // buttons without completely recreating the toolbar.
+
+   HWND toolbar = 0;
+   HWND rebar = GetDlgItem(window, WIN32_REBAR);
+   if(rebar)
+   {
+      toolbar = GetDlgItem(rebar, WIN32_TOOLBAR);
+      if(toolbar)
+      {
+         DestroyWindow(toolbar);
+      }
+
+      DestroyWindow(rebar);
+   }
+
+   toolbar = CreateWindow(TOOLBARCLASSNAME, 0, WS_CHILD|WS_VISIBLE|CCS_NODIVIDER|CCS_NOPARENTALIGN|TBSTYLE_FLAT|TBSTYLE_TOOLTIPS,
+                          0, 0, 0, 0, window, (HMENU)WIN32_TOOLBAR, GetModuleHandle(0), 0);
+
+   HIMAGELIST image_list = (win32_global_dpi > WIN32_DEFAULT_DPI) ? win32_global_toolbar_image_list48 : win32_global_toolbar_image_list24;
+
+   SendMessage(toolbar, TB_BUTTONSTRUCTSIZE, (WPARAM)sizeof(TBBUTTON), 0);
+   SendMessage(toolbar, TB_SETIMAGELIST, 0, (LPARAM)image_list);
+   SendMessage(toolbar, TB_ADDBUTTONS, ARRAY_LENGTH(win32_global_toolbar_buttons), (LPARAM)&win32_global_toolbar_buttons);
+
+   int padding = MulDiv(8, win32_global_dpi, WIN32_DEFAULT_DPI);
+   SendMessage(toolbar, TB_SETPADDING, 0, MAKELONG(padding, 0));
+   SendMessage(toolbar, TB_SETMAXTEXTROWS, 1, 0); // NOTE(law): Turn on labels.
+   // SendMessage(toolbar, TB_SETMAXTEXTROWS, 0, 0); // NOTE(law): Turn off labels, only use text as tooltips.
+
+   // NOTE(law): Create rebar container for toolbar.
+   rebar = CreateWindow(REBARCLASSNAME, 0, WS_CHILD|WS_VISIBLE|CCS_NODIVIDER|RBS_BANDBORDERS,
+                        0, 0, 0, 0, window, (HMENU)WIN32_REBAR, GetModuleHandle(0), 0);
+
+   DWORD button_size = (DWORD)SendMessage(toolbar, TB_GETBUTTONSIZE, 0, 0);
+   DWORD button_width = LOWORD(button_size);
+   DWORD button_height = HIWORD(button_size);
+
+   DWORD padding_size = (DWORD)SendMessage(toolbar, TB_GETPADDING, 0, 0);
+   DWORD padding_width = LOWORD(padding_size);
+   DWORD padding_height = HIWORD(padding_size);
+
+   REBARBANDINFO band = {sizeof(band)};
+   band.fMask = RBBIM_STYLE|RBBIM_CHILD|RBBIM_CHILDSIZE|RBBIM_SIZE;
+   band.fStyle = RBBS_CHILDEDGE;
+   band.hwndChild = toolbar;
+   band.cxMinChild = ARRAY_LENGTH(win32_global_toolbar_buttons) * (button_width + padding_width);
+   band.cyMinChild = button_height + (padding_height * 2);
+   SendMessage(rebar, RB_INSERTBAND, (WPARAM)-1, (LPARAM)&band);
+
+   win32_select_color_scheme(window, gem_global_color_scheme);
+}
+
 LRESULT
 win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
@@ -595,74 +730,20 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
    {
       case WM_CREATE:
       {
-         // NOTE(law): Create window menu bar.
-         win32_global_menu = CreateMenu();
+         win32_global_dpi = win32_get_window_dpi(window);
+         win32_global_menu = GetMenu(window);
 
-         HMENU file_menu = CreatePopupMenu();
-         AppendMenu(file_menu, MF_STRING, WIN32_MENU_FILE_OPEN, TEXT("&Load Cartridge\tCtrl+O"));
-         AppendMenu(file_menu, MF_STRING|MF_GRAYED, WIN32_MENU_FILE_CLOSE, TEXT("&Unload Cartridge"));
-         AppendMenu(file_menu, MF_SEPARATOR, 0, 0);
-         AppendMenu(file_menu, MF_STRING, WIN32_MENU_FILE_EXIT, TEXT("E&xit\tAlt+F4"));
-         AppendMenu(win32_global_menu, MF_STRING|MF_POPUP, (UINT_PTR)file_menu, TEXT("&File"));
+         win32_global_toolbar_image_list24 = ImageList_Create(24, 24, ILC_MASK|ILC_COLORDDB, ARRAY_LENGTH(win32_global_toolbar_buttons), 1);
+         win32_global_toolbar_image_list48 = ImageList_Create(48, 48, ILC_MASK|ILC_COLORDDB, ARRAY_LENGTH(win32_global_toolbar_buttons), 1);
 
-         HMENU view_menu = CreatePopupMenu();
-         AppendMenu(view_menu, MF_STRING|MF_CHECKED, WIN32_MENU_VIEW_COLOR_DMG, TEXT("Dot Matrix Color Scheme"));
-         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_COLOR_MGB, TEXT("Pocket Color Scheme"));
-         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_COLOR_LIGHT, TEXT("Light Color Scheme"));
-         AppendMenu(view_menu, MF_SEPARATOR, 0, 0);
-         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_1X, TEXT("&1x Resolution (160 x 144)\t1"));
-         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_2X, TEXT("&2x Resolution (320 x 288)\t2"));
-         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_4X, TEXT("&4x Resolution (640 x 576)\t4"));
-         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_RESOLUTION_8X, TEXT("&8x Resolution (1280 x 1152)\t8"));
-         AppendMenu(view_menu, MF_SEPARATOR, 0, 0);
-         AppendMenu(view_menu, MF_STRING, WIN32_MENU_VIEW_FULLSCREEN, TEXT("Toggle &Fullscreen\tAlt-Enter"));
-         AppendMenu(win32_global_menu, MF_STRING|MF_POPUP, (UINT_PTR)view_menu, TEXT("&View"));
+         HBITMAP toolbar_bitmap24 = LoadBitmap(GetModuleHandle(0), MAKEINTRESOURCE(WIN32_TOOLBAR_BUTTONS_BITMAP_24));
+         HBITMAP toolbar_bitmap48 = LoadBitmap(GetModuleHandle(0), MAKEINTRESOURCE(WIN32_TOOLBAR_BUTTONS_BITMAP_48));
 
-         SetMenu(window, win32_global_menu);
+         ImageList_AddMasked(win32_global_toolbar_image_list24, toolbar_bitmap24, RGB(0, 0, 0));
+         ImageList_AddMasked(win32_global_toolbar_image_list48, toolbar_bitmap48, RGB(0, 0, 0));
 
          // NOTE(law): Create toolbar.
-         HWND toolbar = CreateWindow(TOOLBARCLASSNAME, 0, WS_CHILD|WS_VISIBLE|CCS_NODIVIDER|CCS_NOPARENTALIGN|TBSTYLE_FLAT|TBSTYLE_TOOLTIPS,
-                                     0, 0, 0, 0, window, (HMENU)WIN32_TOOLBAR, GetModuleHandle(0), 0);
-
-         TBBUTTON buttons[] =
-         {
-            {0, WIN32_MENU_FILE_OPEN, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)TEXT("Open")},
-            {1, WIN32_MENU_CONTROL_PLAY, 0, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)TEXT("Play")},
-            {2, WIN32_MENU_CONTROL_PAUSE, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)TEXT("Pause")},
-            {3, WIN32_MENU_VIEW_FULLSCREEN, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)TEXT("Fullscreen")},
-         };
-
-         HBITMAP toolbar_bitmap = LoadBitmap(GetModuleHandle(0), MAKEINTRESOURCE(WIN32_TOOLBAR_BUTTONS_BITMAP));
-         HIMAGELIST image_list = ImageList_Create(24, 24, ILC_MASK|ILC_COLORDDB, ARRAY_LENGTH(buttons), 1);
-         ImageList_AddMasked(image_list, toolbar_bitmap, RGB(0, 0, 0));
-
-         SendMessage(toolbar, TB_BUTTONSTRUCTSIZE, (WPARAM)sizeof(TBBUTTON), 0);
-         SendMessage(toolbar, TB_SETIMAGELIST, 0, (LPARAM)image_list);
-         SendMessage(toolbar, TB_ADDBUTTONS, ARRAY_LENGTH(buttons), (LPARAM)&buttons);
-
-         SendMessage(toolbar, TB_SETPADDING, 0, MAKELONG(8, 0));
-         SendMessage(toolbar, TB_SETMAXTEXTROWS, 1, 0); // NOTE(law): Turn on labels.
-         // SendMessage(toolbar, TB_SETMAXTEXTROWS, 0, 0); // NOTE(law): Turn off labels, only use text as tooltips.
-
-         // NOTE(law): Create rebar container for toolbar.
-         HWND rebar = CreateWindow(REBARCLASSNAME, 0, WS_CHILD|WS_VISIBLE|CCS_NODIVIDER|RBS_BANDBORDERS,
-                                   0, 0, 0, 0, window, (HMENU)WIN32_REBAR, GetModuleHandle(0), 0);
-
-         DWORD button_size = (DWORD)SendMessage(toolbar, TB_GETBUTTONSIZE, 0, 0);
-         DWORD button_width = LOWORD(button_size);
-         DWORD button_height = HIWORD(button_size);
-
-         DWORD padding_size = (DWORD)SendMessage(toolbar, TB_GETPADDING, 0, 0);
-         DWORD padding_width = LOWORD(padding_size);
-         DWORD padding_height = HIWORD(padding_size);
-
-         REBARBANDINFO band = {sizeof(band)};
-         band.fMask = RBBIM_STYLE|RBBIM_CHILD|RBBIM_CHILDSIZE|RBBIM_SIZE;
-         band.fStyle = RBBS_CHILDEDGE;
-         band.hwndChild = toolbar;
-         band.cxMinChild = ARRAY_LENGTH(buttons) * (button_width + padding_width);
-         band.cyMinChild = button_height + (padding_height * 2);
-         SendMessage(rebar, RB_INSERTBAND, (WPARAM)-1, (LPARAM)&band);
+         win32_create_toolbar(window);
 
          // NOTE(law): Create window status bar.
          CreateWindow(STATUSCLASSNAME, 0, WS_CHILD|WS_VISIBLE, 0, 0, 0, 0, window, (HMENU)WIN32_STATUS_BAR, GetModuleHandle(0), 0);
@@ -670,7 +751,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          // NOTE(law): Set the initial window size based on the scale of the
          // client bitmap area once the various pieces of Win32 UI have been
          // created.
-         win32_set_resolution_scale(window, 1);
+         win32_set_resolution_scale(window, (win32_global_dpi > WIN32_DEFAULT_DPI) ? 2 : 1);
       } break;
 
       case WM_SIZE:
@@ -683,6 +764,20 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 
          HWND status_bar = GetDlgItem(window, WIN32_STATUS_BAR);
          SendMessage(status_bar, WM_SIZE, 0, 0);
+      } break;
+
+      case WM_DPICHANGED:
+      {
+         win32_global_dpi = HIWORD(wparam);
+         win32_create_toolbar(window);
+
+         RECT *updated_window = (RECT *)lparam;
+         int x = updated_window->left;
+         int y = updated_window->top;
+         int width = updated_window->right - updated_window->left;
+         int height = updated_window->bottom - updated_window->top;
+
+         SetWindowPos(window, 0, x, y, width, height, SWP_NOZORDER|SWP_NOACTIVATE);
       } break;
 
       case WM_COMMAND:
@@ -707,32 +802,17 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 
             case WIN32_MENU_VIEW_COLOR_DMG:
             {
-               gem_global_color_scheme = MONOCHROME_COLOR_SCHEME_DMG;
-               CheckMenuRadioItem(win32_global_menu,
-                                  WIN32_MENU_VIEW_COLOR_DMG,
-                                  WIN32_MENU_VIEW_COLOR_LIGHT,
-                                  WIN32_MENU_VIEW_COLOR_DMG,
-                                  MF_BYCOMMAND);
+               win32_select_color_scheme(window, MONOCHROME_COLOR_SCHEME_DMG);
             } break;
 
             case WIN32_MENU_VIEW_COLOR_MGB:
             {
-               gem_global_color_scheme = MONOCHROME_COLOR_SCHEME_MGB;
-               CheckMenuRadioItem(win32_global_menu,
-                                  WIN32_MENU_VIEW_COLOR_DMG,
-                                  WIN32_MENU_VIEW_COLOR_LIGHT,
-                                  WIN32_MENU_VIEW_COLOR_MGB,
-                                  MF_BYCOMMAND);
+               win32_select_color_scheme(window, MONOCHROME_COLOR_SCHEME_MGB);
             } break;
 
             case WIN32_MENU_VIEW_COLOR_LIGHT:
             {
-               gem_global_color_scheme = MONOCHROME_COLOR_SCHEME_LIGHT;
-               CheckMenuRadioItem(win32_global_menu,
-                                  WIN32_MENU_VIEW_COLOR_DMG,
-                                  WIN32_MENU_VIEW_COLOR_LIGHT,
-                                  WIN32_MENU_VIEW_COLOR_LIGHT,
-                                  MF_BYCOMMAND);
+               win32_select_color_scheme(window, MONOCHROME_COLOR_SCHEME_LIGHT);
             } break;
 
             case WIN32_MENU_VIEW_RESOLUTION_1X:
@@ -849,14 +929,7 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
             }
             else if(wparam == 'C')
             {
-               gem_global_color_scheme++;
-               if(gem_global_color_scheme >= MONOCHROME_COLOR_SCHEME_COUNT)
-               {
-                  gem_global_color_scheme = 0;
-               }
-
-               WPARAM param = WIN32_MENU_VIEW_COLOR_DMG + gem_global_color_scheme;
-               SendMessage(window, WM_COMMAND, param, 0);
+               win32_select_color_scheme(window, gem_global_color_scheme + 1);
             }
             else if(wparam == 'D')
             {
@@ -933,6 +1006,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    window_class.hIconSm = LoadImage(instance, MAKEINTRESOURCE(WIN32_ICON), IMAGE_ICON, 16, 16, 0);
    window_class.hCursor = LoadCursor(0, IDC_ARROW);
    window_class.lpszClassName = TEXT("Game_Boy_Emulator_GEM");
+   window_class.lpszMenuName = MAKEINTRESOURCE(WIN32_MENU);
 
    if(!RegisterClassEx(&window_class))
    {
@@ -943,7 +1017,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    HWND window = CreateWindowEx(0,
                                 window_class.lpszClassName,
                                 TEXT("Game Boy Emulator (GEM)"),
-                                WS_OVERLAPPEDWINDOW,
+                                WS_OVERLAPPEDWINDOW|WS_THICKFRAME,
                                 CW_USEDEFAULT,
                                 CW_USEDEFAULT,
                                 CW_USEDEFAULT,
