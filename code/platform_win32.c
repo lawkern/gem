@@ -36,6 +36,8 @@ static BITMAPINFO *win32_global_bitmap_info;
 #define WIN32_DEFAULT_DPI 96
 static int win32_global_dpi = WIN32_DEFAULT_DPI;
 static HMENU win32_global_menu;
+static HANDLE win32_global_small_icon16;
+static HANDLE win32_global_small_icon24;
 
 static WINDOWPLACEMENT win32_global_previous_window_placement =
 {
@@ -733,6 +735,18 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          win32_global_dpi = win32_get_window_dpi(window);
          win32_global_menu = GetMenu(window);
 
+         win32_global_small_icon16 = LoadImage(GetModuleHandle(0), MAKEINTRESOURCE(WIN32_ICON), IMAGE_ICON, 16, 16, 0);
+         win32_global_small_icon24 = LoadImage(GetModuleHandle(0), MAKEINTRESOURCE(WIN32_ICON), IMAGE_ICON, 24, 24, 0);
+
+         if(win32_global_dpi > WIN32_DEFAULT_DPI)
+         {
+            SendMessage(window, WM_SETICON, ICON_SMALL, (LPARAM)win32_global_small_icon24);
+         }
+         else
+         {
+            SendMessage(window, WM_SETICON, ICON_SMALL, (LPARAM)win32_global_small_icon16);
+         }
+
          win32_global_toolbar_image_list24 = ImageList_Create(24, 24, ILC_MASK|ILC_COLORDDB, ARRAY_LENGTH(win32_global_toolbar_buttons), 1);
          win32_global_toolbar_image_list48 = ImageList_Create(48, 48, ILC_MASK|ILC_COLORDDB, ARRAY_LENGTH(win32_global_toolbar_buttons), 1);
 
@@ -778,6 +792,15 @@ win32_window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
          int height = updated_window->bottom - updated_window->top;
 
          SetWindowPos(window, 0, x, y, width, height, SWP_NOZORDER|SWP_NOACTIVATE);
+
+         if(win32_global_dpi > WIN32_DEFAULT_DPI)
+         {
+            SendMessage(window, WM_SETICON, ICON_SMALL, (LPARAM)win32_global_small_icon24);
+         }
+         else
+         {
+            SendMessage(window, WM_SETICON, ICON_SMALL, (LPARAM)win32_global_small_icon16);
+         }
       } break;
 
       case WM_COMMAND:
@@ -1002,8 +1025,7 @@ WinMain(HINSTANCE instance, HINSTANCE previous_instance, LPSTR command_line, int
    window_class.style = CS_HREDRAW|CS_VREDRAW;
    window_class.lpfnWndProc = win32_window_callback;
    window_class.hInstance = instance;
-   window_class.hIcon = LoadIcon(instance, MAKEINTRESOURCE(WIN32_ICON));
-   window_class.hIconSm = LoadImage(instance, MAKEINTRESOURCE(WIN32_ICON), IMAGE_ICON, 16, 16, 0);
+   window_class.hIcon = LoadImage(instance, MAKEINTRESOURCE(WIN32_ICON), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE);
    window_class.hCursor = LoadCursor(0, IDC_ARROW);
    window_class.lpszClassName = TEXT("Game_Boy_Emulator_GEM");
    window_class.lpszMenuName = MAKEINTRESOURCE(WIN32_MENU);
