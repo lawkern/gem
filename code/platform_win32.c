@@ -25,28 +25,28 @@
 #define WIN32_SECONDS_ELAPSED(start, end) ((float)((end).QuadPart - (start).QuadPart) \
       / (float)win32_global_counts_per_second.QuadPart)
 
-static bool win32_global_is_running;
-static bool win32_global_is_paused;
-static LARGE_INTEGER win32_global_counts_per_second;
+global bool win32_global_is_running;
+global bool win32_global_is_paused;
+global LARGE_INTEGER win32_global_counts_per_second;
 
-static struct memory_arena *win32_global_arena;
-static struct pixel_bitmap *win32_global_bitmap;
-static BITMAPINFO *win32_global_bitmap_info;
+global struct memory_arena *win32_global_arena;
+global struct pixel_bitmap *win32_global_bitmap;
+global BITMAPINFO *win32_global_bitmap_info;
 
 #define WIN32_DEFAULT_DPI 96
-static int win32_global_dpi = WIN32_DEFAULT_DPI;
-static HMENU win32_global_menu;
-static HANDLE win32_global_small_icon16;
-static HANDLE win32_global_small_icon24;
+global int win32_global_dpi = WIN32_DEFAULT_DPI;
+global HMENU win32_global_menu;
+global HANDLE win32_global_small_icon16;
+global HANDLE win32_global_small_icon24;
 
-static WINDOWPLACEMENT win32_global_previous_window_placement =
+global WINDOWPLACEMENT win32_global_previous_window_placement =
 {
    sizeof(win32_global_previous_window_placement)
 };
 
-static HIMAGELIST win32_global_toolbar_image_list24;
-static HIMAGELIST win32_global_toolbar_image_list48;
-static TBBUTTON win32_global_toolbar_buttons[] =
+global HIMAGELIST win32_global_toolbar_image_list24;
+global HIMAGELIST win32_global_toolbar_image_list48;
+global TBBUTTON win32_global_toolbar_buttons[] =
 {
    {0, WIN32_MENU_FILE_OPEN, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)TEXT("Open")},
    {1, WIN32_MENU_CONTROL_PLAY, 0, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)TEXT("Play")},
@@ -54,7 +54,7 @@ static TBBUTTON win32_global_toolbar_buttons[] =
    {3, WIN32_MENU_VIEW_FULLSCREEN, TBSTATE_ENABLED, TBSTYLE_BUTTON|TBSTYLE_AUTOSIZE, {0}, 0, (INT_PTR)TEXT("Fullscreen")},
 };
 
-static
+function
 PLATFORM_LOG(platform_log)
 {
    char message[PLATFORM_LOG_MAX_LENGTH];
@@ -69,14 +69,14 @@ PLATFORM_LOG(platform_log)
    OutputDebugStringA(message);
 }
 
-static void *
+function void *
 win32_allocate(SIZE_T size)
 {
    VOID *result = VirtualAlloc(0, size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
    return(result);
 }
 
-static void
+function void
 win32_free(VOID *memory)
 {
    if(!VirtualFree(memory, 0, MEM_RELEASE))
@@ -85,7 +85,7 @@ win32_free(VOID *memory)
    }
 }
 
-static
+function
 PLATFORM_FREE_FILE(platform_free_file)
 {
    if(file->memory)
@@ -96,7 +96,7 @@ PLATFORM_FREE_FILE(platform_free_file)
    ZeroMemory(file, sizeof(*file));
 }
 
-static
+function
 PLATFORM_LOAD_FILE(platform_load_file)
 {
    struct platform_file result = {0};
@@ -138,7 +138,7 @@ PLATFORM_LOAD_FILE(platform_load_file)
    return(result);
 }
 
-static void
+function void
 win32_load_cartridge(struct memory_arena *arena, HWND window, char *file_path)
 {
    load_cartridge(arena, file_path);
@@ -152,7 +152,7 @@ win32_load_cartridge(struct memory_arena *arena, HWND window, char *file_path)
    }
 }
 
-static void
+function void
 win32_unload_cartridge(struct memory_arena *arena, HWND window)
 {
    unload_cartridge(arena);
@@ -163,7 +163,7 @@ win32_unload_cartridge(struct memory_arena *arena, HWND window)
    EnableMenuItem(win32_global_menu, WIN32_MENU_FILE_CLOSE, MF_GRAYED);
 }
 
-static void
+function void
 win32_open_file_dialog(struct memory_arena *arena, HWND window)
 {
    // TODO(law): We want something better than MAX_PATH here.
@@ -184,7 +184,7 @@ win32_open_file_dialog(struct memory_arena *arena, HWND window)
    }
 }
 
-static void
+function void
 win32_toggle_fullscreen(HWND window)
 {
    // NOTE(law): Based on version by Raymond Chen:
@@ -226,7 +226,7 @@ win32_toggle_fullscreen(HWND window)
    }
 }
 
-static bool
+function bool
 win32_is_fullscreen(HWND window)
 {
    DWORD style = GetWindowLong(window, GWL_STYLE);
@@ -235,7 +235,7 @@ win32_is_fullscreen(HWND window)
    return(result);
 }
 
-static u32
+function u32
 win32_get_toolbar_height(HWND window)
 {
    // TODO(law): Determine if this query is too slow to process every frame.
@@ -256,7 +256,7 @@ win32_get_toolbar_height(HWND window)
    return(result);
 }
 
-static u32
+function u32
 win32_get_status_height(HWND window)
 {
    // TODO(law): Determine if this query is too slow to process every frame.
@@ -274,7 +274,7 @@ win32_get_status_height(HWND window)
    return(result);
 }
 
-static void
+function void
 win32_adjust_window_rect(RECT *window_rect)
 {
    bool dpi_supported = false;
@@ -304,7 +304,7 @@ win32_adjust_window_rect(RECT *window_rect)
    }
 }
 
-static void
+function void
 win32_set_resolution_scale(HWND window, u32 scale)
 {
    // NOTE(law): Prevent updating the resolution if the window is currently in
@@ -329,7 +329,7 @@ win32_set_resolution_scale(HWND window, u32 scale)
    }
 }
 
-static void
+function void
 win32_display_bitmap(struct pixel_bitmap bitmap, HWND window, HDC device_context)
 {
    RECT client_rect;
@@ -398,7 +398,7 @@ struct win32_sound_output
    LPDIRECTSOUNDBUFFER buffer;
 };
 
-static void
+function void
 win32_clear_sound_buffer(struct win32_sound_output *output)
 {
    VOID *region1;
@@ -432,7 +432,7 @@ win32_clear_sound_buffer(struct win32_sound_output *output)
    }
 }
 
-static void
+function void
 win32_initialize_sound(struct win32_sound_output *output, HWND window)
 {
    ZeroMemory(output, sizeof(*output));
@@ -518,7 +518,7 @@ win32_initialize_sound(struct win32_sound_output *output, HWND window)
    }
 }
 
-static DWORD
+function DWORD
 win32_get_sound_write_size(struct win32_sound_output *output)
 {
    DWORD result = 0;
@@ -547,7 +547,7 @@ win32_get_sound_write_size(struct win32_sound_output *output)
    return(result);
 }
 
-static void
+function void
 win32_output_sound_samples(struct win32_sound_output *output, s16 *samples, DWORD write_size)
 {
    VOID *region1;
@@ -592,7 +592,7 @@ win32_output_sound_samples(struct win32_sound_output *output, s16 *samples, DWOR
    }
 }
 
-static void
+function void
 win32_set_pause_state(HWND window, bool paused)
 {
    win32_global_is_paused = paused;
@@ -611,7 +611,7 @@ win32_set_pause_state(HWND window, bool paused)
    }
 }
 
-static int
+function int
 win32_get_window_dpi(HWND window)
 {
    int result = 0;
@@ -651,7 +651,7 @@ win32_get_window_dpi(HWND window)
    return(result);
 }
 
-static void
+function void
 win32_select_color_scheme(HWND window, enum monochrome_color_scheme scheme)
 {
    if(scheme >= MONOCHROME_COLOR_SCHEME_COUNT)
@@ -667,7 +667,7 @@ win32_select_color_scheme(HWND window, enum monochrome_color_scheme scheme)
                       MF_BYCOMMAND);
 }
 
-static void
+function void
 win32_create_toolbar(HWND window)
 {
    // TODO(law): Determine if there is a better way to repopulate toolbar

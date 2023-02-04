@@ -18,6 +18,9 @@ typedef int16_t s16;
 typedef int32_t s32;
 typedef int64_t s64;
 
+#define function static
+#define global static
+
 #define ARRAY_LENGTH(array) (sizeof(array) / sizeof((array)[0]))
 #define MAXIMUM(a, b) ((a) > (b) ? (a) : (b))
 
@@ -40,9 +43,9 @@ struct platform_file
 #define PLATFORM_FREE_FILE(name) void name(struct platform_file *file)
 #define PLATFORM_LOAD_FILE(name) struct platform_file name(char *file_path)
 
-static PLATFORM_LOG(platform_log);
-static PLATFORM_FREE_FILE(platform_free_file);
-static PLATFORM_LOAD_FILE(platform_load_file);
+function PLATFORM_LOG(platform_log);
+function PLATFORM_FREE_FILE(platform_free_file);
+function PLATFORM_LOAD_FILE(platform_load_file);
 
 #define TAU 6.2831853071f
 
@@ -76,7 +79,7 @@ enum memory_bank_controller
    MEMORY_BANK_CONTROLLER_MBC2,
 };
 
-static struct
+global struct
 {
    struct memory_bank rom_banks[512];
    struct memory_bank ram_banks[16];
@@ -107,7 +110,7 @@ static struct
    bool ram_enabled;
 } map;
 
-static struct
+global struct
 {
    u8 a;
    u8 b;
@@ -122,9 +125,9 @@ static struct
    u16 sp;
 } registers;
 
-static bool halt;
-static bool stop;
-static bool ime;
+global bool halt;
+global bool stop;
+global bool ime;
 
 #define REGISTER_BC (((u16)registers.b << 8) | (u16)registers.c)
 #define REGISTER_DE (((u16)registers.d << 8) | (u16)registers.e)
@@ -149,7 +152,7 @@ static bool ime;
 #define FLAG_H ((registers.f >> FLAG_H_BIT) & 0x1)
 #define FLAG_C ((registers.f >> FLAG_C_BIT) & 0x1)
 
-static u8 boot_rom[] =
+global u8 boot_rom[] =
 {
    0x31, 0xFE, 0xFF, 0xAF, 0x21, 0xFF, 0x9F, 0x32, 0xCB, 0x7C, 0x20, 0xFB, 0x21, 0x26, 0xFF, 0x0E,
    0x11, 0x3E, 0x80, 0x32, 0xE2, 0x0C, 0x3E, 0xF3, 0xE2, 0x32, 0x3E, 0x77, 0x77, 0x3E, 0xFC, 0xE0,
@@ -169,7 +172,7 @@ static u8 boot_rom[] =
    0xF5, 0x06, 0x19, 0x78, 0x86, 0x23, 0x05, 0x20, 0xFB, 0x86, 0x20, 0xFE, 0x3E, 0x01, 0xE0, 0x50,
 };
 
-static void *
+function void *
 allocate(struct memory_arena *arena, size_t size)
 {
    assert(size <= (arena->size - arena->used));
@@ -180,13 +183,13 @@ allocate(struct memory_arena *arena, size_t size)
    return(result);
 }
 
-static void
+function void
 reset_arena(struct memory_arena *arena)
 {
    arena->used = 0;
 }
 
-static void
+function void
 zero_memory(void *memory, size_t size)
 {
    // TODO(law): Speed this up!
@@ -198,7 +201,7 @@ zero_memory(void *memory, size_t size)
    }
 }
 
-static void
+function void
 copy_memory(void *destination, void *source, size_t size)
 {
    // TODO(law): Speed this up!
@@ -211,7 +214,7 @@ copy_memory(void *destination, void *source, size_t size)
    }
 }
 
-static u16
+function u16
 endian_swap16(u16 value)
 {
    // TODO(law): For now, we're just assuming the host machine is little
@@ -256,7 +259,7 @@ struct cartridge_header
 };
 #pragma pack(pop)
 
-static u8
+function u8
 read_memory(u16 address)
 {
    // TODO(law): Condense this down once everything is working.
@@ -354,7 +357,7 @@ read_memory(u16 address)
    return(result);
 }
 
-static void
+function void
 write_memory(u16 address, u8 value)
 {
    // TODO(law): Condense this down once everything is working.
@@ -480,7 +483,7 @@ write_memory(u16 address, u8 value)
    }
 }
 
-static u16
+function u16
 read_memory16(u16 address)
 {
    // TODO(law): Confirm the endian-ness here.
@@ -491,7 +494,7 @@ read_memory16(u16 address)
    return(result);
 }
 
-static void
+function void
 write_memory16(u16 address, u16 value)
 {
    // TODO(law): Confirm the endian-ness here.
@@ -502,14 +505,14 @@ write_memory16(u16 address, u16 value)
    write_memory(address + 1, high);
 }
 
-static struct cartridge_header *
+function struct cartridge_header *
 get_cartridge_header(u8 *rom_memory)
 {
    struct cartridge_header *result = (struct cartridge_header *)(rom_memory + 0x100);
    return(result);
 }
 
-static bool
+function bool
 validate_cartridge_header(u8 *rom_memory, size_t rom_size)
 {
    struct cartridge_header *header = get_cartridge_header(rom_memory);
@@ -579,7 +582,7 @@ validate_cartridge_header(u8 *rom_memory, size_t rom_size)
    return(true);
 }
 
-static
+function
 void dump_cartridge_header(u8 *stream)
 {
    struct cartridge_header *header = get_cartridge_header(stream);
@@ -665,14 +668,14 @@ void dump_cartridge_header(u8 *stream)
    platform_log("  GLOBAL CHECKSUM: 0x%04X\n", header->global_checksum);
 }
 
-static void
+function void
 allocate_memory_bank(struct memory_arena *arena, struct memory_bank *bank, size_t size)
 {
    bank->size = size;
    bank->memory = allocate(arena, size);
 }
 
-static void
+function void
 unload_cartridge(struct memory_arena *arena)
 {
    reset_arena(arena);
@@ -680,7 +683,7 @@ unload_cartridge(struct memory_arena *arena)
    zero_memory(&registers, sizeof(registers));
 }
 
-static void
+function void
 load_cartridge(struct memory_arena *arena, char *file_path)
 {
    unload_cartridge(arena);
@@ -786,7 +789,7 @@ load_cartridge(struct memory_arena *arena, char *file_path)
    map.load_complete = true;
 }
 
-static u16
+function u16
 disassemble_instruction(u16 address)
 {
    u16 initial_address = address;
@@ -1535,7 +1538,7 @@ disassemble_instruction(u16 address)
    return(result);
 }
 
-static void
+function void
 disassemble_stream(u16 address, u32 byte_count)
 {
    // TODO(law): 16-bit operations are not being endian swapped in this
@@ -1548,8 +1551,7 @@ disassemble_stream(u16 address, u32 byte_count)
    }
 }
 
-static void
-add(u8 value)
+function void add(u8 value)
 {
    // NOTE(law): Compute these values before updating register A for use in the
    // flag calculations.
@@ -1571,8 +1573,7 @@ add(u8 value)
    registers.f = (registers.f & ~FLAG_C_MASK) | ((extended_sum > 0xFF) << FLAG_C_BIT);
 }
 
-static void
-adc(u8 value)
+function void adc(u8 value)
 {
    // NOTE(law): Compute these values before updating register A for use in the
    // flag calculations.
@@ -1596,8 +1597,7 @@ adc(u8 value)
    registers.f = (registers.f & ~FLAG_C_MASK) | ((extended_sum > 0xFF) << FLAG_C_BIT);
 }
 
-static void
-sub(u8 value)
+function void sub(u8 value)
 {
    // NOTE(law): Compute these values before updating register A for use in the
    // flag calculations.
@@ -1620,8 +1620,7 @@ sub(u8 value)
    registers.f = (registers.f & ~FLAG_C_MASK) | (is_negative << FLAG_C_BIT);
 }
 
-static void
-sbc(u8 value)
+function void sbc(u8 value)
 {
    s8 value_and_carry = (s8)value + FLAG_C;
 
@@ -1644,8 +1643,7 @@ sbc(u8 value)
    registers.f = (registers.f & ~FLAG_C_MASK) | (is_negative << FLAG_C_BIT);
 }
 
-static void
-xor(u8 value)
+function void xor(u8 value)
 {
    registers.a ^= value;
 
@@ -1662,8 +1660,7 @@ xor(u8 value)
    registers.f &= ~FLAG_C_MASK;
 }
 
-static void
-or(u8 value)
+function void or(u8 value)
 {
    registers.a |= value;
 
@@ -1680,8 +1677,7 @@ or(u8 value)
    registers.f &= ~FLAG_C_MASK;
 }
 
-static void
-and(u8 value)
+function void and(u8 value)
 {
    registers.a &= value;
 
@@ -1698,8 +1694,7 @@ and(u8 value)
    registers.f &= ~FLAG_C_MASK;
 }
 
-static void
-cp(u8 value)
+function void cp(u8 value)
 {
    // NOTE(law): If the compared values are equivalent, set the Zero flag.
    registers.f = (registers.f & ~FLAG_Z_MASK) | ((registers.a == value) << FLAG_Z_BIT);
@@ -1719,8 +1714,7 @@ cp(u8 value)
    registers.f = (registers.f & ~FLAG_C_MASK) | (is_negative << FLAG_C_BIT);
 }
 
-static u8
-inc(u8 value)
+function u8 inc(u8 value)
 {
    // NOTE(law): Increment
 
@@ -1742,8 +1736,7 @@ inc(u8 value)
    return(value);
 }
 
-static u8
-dec(u8 value)
+function u8 dec(u8 value)
 {
    // NOTE(law): Decrement
 
@@ -1765,8 +1758,7 @@ dec(u8 value)
    return(value);
 }
 
-static void
-add16(u16 value)
+function void add16(u16 value)
 {
    u32 extended_sum = (u32)REGISTER_HL + (u32)value;
    u8 half_sum = (REGISTER_HL & 0xF) + (value & 0xF);
@@ -1786,8 +1778,7 @@ add16(u16 value)
    registers.f = (registers.f & ~FLAG_C_MASK) | ((extended_sum > 0xFFFF) << FLAG_C_BIT);
 }
 
-static void
-inc16_bytes(u8 *high, u8 *low)
+function void inc16_bytes(u8 *high, u8 *low)
 {
    u16 value = ((u16)*high << 8) | ((u16)*low & 0xFF);
    value += 1;
@@ -1799,8 +1790,7 @@ inc16_bytes(u8 *high, u8 *low)
    // NOTE(law): The flags are not affected by 16-bit increments/decrements.
 }
 
-static void
-dec16_bytes(u8 *high, u8 *low)
+function void dec16_bytes(u8 *high, u8 *low)
 {
    u16 value = ((u16)*high << 8) | (u16)*low;
    value -= 1;
@@ -1811,24 +1801,21 @@ dec16_bytes(u8 *high, u8 *low)
    // NOTE(law): The flags are not affected by 16-bit increments/decrements.
 }
 
-static void
-inc16(u16 *value)
+function void inc16(u16 *value)
 {
    *value += 1;
 
    // NOTE(law): The flags are not affected by 16-bit increments/decrements.
 }
 
-static void
-dec16(u16 *value)
+function void dec16(u16 *value)
 {
    *value -= 1;
 
    // NOTE(law): The flags are not affected by 16-bit increments/decrements.
 }
 
-static void
-jp(bool should_jump)
+function void jp(bool should_jump)
 {
    u8 address_low  = read_memory(registers.pc++);
    u8 address_high = read_memory(registers.pc++);
@@ -1840,8 +1827,7 @@ jp(bool should_jump)
    }
 }
 
-static void
-jr(bool should_jump)
+function void jr(bool should_jump)
 {
    s8 offset = read_memory(registers.pc++);
 
@@ -1852,8 +1838,7 @@ jr(bool should_jump)
    }
 }
 
-static void
-call(bool should_jump)
+function void call(bool should_jump)
 {
    u8 address_low  = read_memory(registers.pc++);
    u8 address_high = read_memory(registers.pc++);
@@ -1868,8 +1853,7 @@ call(bool should_jump)
    }
 }
 
-static void
-ret(bool should_jump)
+function void ret(bool should_jump)
 {
    u8 address_low  = read_memory(registers.sp++);
    u8 address_high = read_memory(registers.sp++);
@@ -1881,8 +1865,7 @@ ret(bool should_jump)
    }
 }
 
-static void
-rst(u8 address_low)
+function void rst(u8 address_low)
 {
    write_memory(--registers.sp, registers.pc >> 8);
    write_memory(--registers.sp, registers.pc & 0xFF);
@@ -1891,8 +1874,7 @@ rst(u8 address_low)
    registers.pc = address;
 }
 
-static u8
-rl(u8 value)
+function u8 rl(u8 value)
 {
    // NOTE(law): Rotate Left
 
@@ -1920,8 +1902,7 @@ rl(u8 value)
    return(value);
 }
 
-static void
-rla()
+function void rla()
 {
    // NOTE(law): Rotate Left Accumulator
 
@@ -1947,8 +1928,7 @@ rla()
    registers.f = (registers.f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
 }
 
-static u8
-rlc(u8 value)
+function u8 rlc(u8 value)
 {
    // NOTE(law): Rotate Left Circular
 
@@ -1975,8 +1955,7 @@ rlc(u8 value)
    return(value);
 }
 
-static void
-rlca()
+function void rlca()
 {
    // NOTE(law): Rotate Left Circular Accumulator
 
@@ -2001,8 +1980,7 @@ rlca()
    registers.f = (registers.f & ~FLAG_C_MASK) | (previous_bit7 << FLAG_C_BIT);
 }
 
-static u8
-rr(u8 value)
+function u8 rr(u8 value)
 {
    // NOTE(law): Rotate Right
 
@@ -2030,8 +2008,7 @@ rr(u8 value)
    return(value);
 }
 
-static void
-rra()
+function void rra()
 {
    // NOTE(law): Rotate Right Accumulator
 
@@ -2056,8 +2033,7 @@ rra()
    registers.f = (registers.f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
 }
 
-static u8
-rrc(u8 value)
+function u8 rrc(u8 value)
 {
    // NOTE(law): Rotate Right Circular
 
@@ -2084,8 +2060,7 @@ rrc(u8 value)
    return(value);
 }
 
-static void
-rrca()
+function void rrca()
 {
    // NOTE(law): Rotate Right Circular Accumulator
 
@@ -2110,8 +2085,7 @@ rrca()
    registers.f = (registers.f & ~FLAG_C_MASK) | (previous_bit0 << FLAG_C_BIT);
 }
 
-static void
-bit(u32 bit_index, u8 value)
+function void bit(u32 bit_index, u8 value)
 {
    // NOTE(law) Update the Zero flag based on the value of specified bit index
    // of the value. If the bit is zero, set the flag, else reset it.
@@ -2128,22 +2102,19 @@ bit(u32 bit_index, u8 value)
    // NOTE(law): The Carry flag is not affected.
 }
 
-static u8
-set(u32 bit_index, u8 value)
+function u8 set(u32 bit_index, u8 value)
 {
    value |= (1 << bit_index);
    return(value);
 }
 
-static u8
-res(u32 bit_index, u8 value)
+function u8 res(u32 bit_index, u8 value)
 {
    value &= ~(1 << bit_index);
    return(value);
 }
 
-static u8
-sla(u8 value)
+function u8 sla(u8 value)
 {
    // NOTE(law): Shift Left Arithmetic
 
@@ -2166,8 +2137,7 @@ sla(u8 value)
    return(value);
 }
 
-static u8
-sra(u8 value)
+function u8 sra(u8 value)
 {
    // NOTE(law): Shift Right Arithmetic
 
@@ -2192,8 +2162,7 @@ sra(u8 value)
    return(value);
 }
 
-static u8
-swap(u8 value)
+function u8 swap(u8 value)
 {
    u8 high_nibble = (value >> 4);
    u8 low_nibble = (value & 0xF);
@@ -2202,8 +2171,7 @@ swap(u8 value)
    return(value);
 }
 
-static u8
-srl(u8 value)
+function u8 srl(u8 value)
 {
    // NOTE(law): Shift Right Logical
 
@@ -2370,7 +2338,7 @@ struct opcode_cycle_count cbprefix_cycle_counts[] =
    [0xFC] = {8}, [0xFD] = {8}, [0xFE] = {16}, [0xFF] = {8},
 };
 
-static u32
+function u32
 fetch_and_execute()
 {
    u8 opcode = read_memory(registers.pc++);
@@ -3263,7 +3231,7 @@ fetch_and_execute()
 #define JOYPAD_LEFT_B_MASK     (1 << JOYPAD_LEFT_B_MASK)
 #define JOYPAD_RIGHT_A_MASK    (1 << JOYPAD_RIGHT_A_MASK)
 
-static void
+function void
 handle_interrupts()
 {
    if(ime && (read_memory(REGISTER_IE_ADDRESS) & read_memory(REGISTER_IF_ADDRESS)))
@@ -3316,9 +3284,9 @@ enum monochrome_color_scheme
 
 // NOTE(law): Update the global color scheme from platform code, since each
 // platform might want to handle the necessary UI differently.
-static enum monochrome_color_scheme gem_global_color_scheme;
+global enum monochrome_color_scheme gem_global_color_scheme;
 
-static u32 monochrome_color_schemes[][5] =
+global u32 monochrome_color_schemes[][5] =
 {
    // NOTE(law): The value at index 4 of each color scheme is the color of the
    // LCD when the display is disabled. It is not actually used by the palette.
@@ -3328,7 +3296,7 @@ static u32 monochrome_color_schemes[][5] =
    {0xFF65F2BA, 0xFF39C28C, 0xFF30B37F, 0xFF0E7F54, 0xFFFFFFFF}, // 0xFFBDB890}, // LIGHT
 };
 
-static u32
+function u32
 get_display_off_color()
 {
    enum monochrome_color_scheme color_scheme = gem_global_color_scheme;
@@ -3337,7 +3305,7 @@ get_display_off_color()
    return(result);
 }
 
-static void
+function void
 get_palette(u32 *palette, u16 address)
 {
    enum monochrome_color_scheme color_scheme = gem_global_color_scheme;
@@ -3353,7 +3321,7 @@ get_palette(u32 *palette, u16 address)
    palette[3] = colors[(palette_data >> 6) & 0x3];
 }
 
-static void
+function void
 clear(struct pixel_bitmap *bitmap, u32 color)
 {
    for(u32 y = 0; y < bitmap->height; ++y)
@@ -3365,7 +3333,7 @@ clear(struct pixel_bitmap *bitmap, u32 color)
    }
 }
 
-static void
+function void
 clear_scanline(struct pixel_bitmap *bitmap, u32 scanline, u32 color)
 {
    for(u32 x = 0; x < bitmap->width; ++x)
@@ -3402,7 +3370,7 @@ clear_scanline(struct pixel_bitmap *bitmap, u32 scanline, u32 color)
 #define BYTES_PER_TILE_SCANLINE 2
 #define BYTES_PER_TILE (BYTES_PER_TILE_SCANLINE * TILE_PIXEL_DIM)
 
-static void
+function void
 render_scanline(struct pixel_bitmap *bitmap, u16 scanline)
 {
    // TODO(law): Implement the full pixel FIFO with sprite and window support.
@@ -3500,14 +3468,14 @@ struct sound_samples
    s16 *samples;
 };
 
-static void
+function void
 clear_sound_samples(struct sound_samples *sound)
 {
    sound->sample_index = 0;
    zero_memory(sound->samples, sound->size);
 }
 
-static void
+function void
 generate_debug_samples(struct sound_samples *destination, u32 sample_count)
 {
    assert(destination->size >= (destination->sample_index + sample_count) * SOUND_OUTPUT_BYTES_PER_SAMPLE);
@@ -3537,7 +3505,7 @@ generate_debug_samples(struct sound_samples *destination, u32 sample_count)
    destination->sample_index += sample_count;
 }
 
-static void
+function void
 generate_sound_sample(struct sound_samples *destination)
 {
    static u32 frame_sequncer_clock = 0;
@@ -3765,7 +3733,7 @@ struct cycle_clocks
 #define SOUND_PERIOD (CPU_HZ / SOUND_OUTPUT_HZ)
 #define HORIZONTAL_SYNC_PERIOD (CPU_HZ / HORIZONTAL_SYNC_HZ)
 
-static void
+function void
 cpu_tick(struct cycle_clocks *clocks, struct pixel_bitmap *bitmap, struct sound_samples *sound)
 {
    if(!map.boot_complete && read_memory(0xFF50))
