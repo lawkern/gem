@@ -30,11 +30,11 @@ struct linux_window_dimensions
 #define LINUX_SECONDS_ELAPSED(start, end) ((float)((end).tv_sec - (start).tv_sec) \
         + (1e-9f * (float)((end).tv_nsec - (start).tv_nsec)))
 
-static bool linux_global_is_running;
-static bool linux_global_is_paused;
-static Display *linux_global_display;
+global bool linux_global_is_running;
+global bool linux_global_is_paused;
+global Display *linux_global_display;
 
-static
+function
 PLATFORM_LOG(platform_log)
 {
    char message[PLATFORM_LOG_MAX_LENGTH];
@@ -49,7 +49,7 @@ PLATFORM_LOG(platform_log)
    printf("%s", message);
 }
 
-static void *
+function void *
 linux_allocate(size_t size)
 {
    // NOTE(law): munmap() requires the size of the allocation in order to free
@@ -71,7 +71,7 @@ linux_allocate(size_t size)
    return(result);
 }
 
-static void
+function void
 linux_deallocate(void *memory)
 {
    // NOTE(law): munmap() requires the size of the allocation in order to free
@@ -87,14 +87,14 @@ linux_deallocate(void *memory)
    }
 }
 
-static
+function
 PLATFORM_FREE_FILE(platform_free_file)
 {
    linux_deallocate(file->memory);
    zero_memory(file, sizeof(*file));
 }
 
-static
+function
 PLATFORM_LOAD_FILE(platform_load_file)
 {
    // TODO(law): Better file I/O once file access is needed anywhere besides
@@ -134,7 +134,7 @@ PLATFORM_LOAD_FILE(platform_load_file)
    return(result);
 }
 
-static void
+function void
 linux_get_window_dimensions(Window window, struct linux_window_dimensions *dimensions)
 {
    Display *display = linux_global_display;
@@ -146,7 +146,7 @@ linux_get_window_dimensions(Window window, struct linux_window_dimensions *dimen
    dimensions->height = (s32)window_attributes.height;
 }
 
-static void
+function void
 linux_set_resolution_scale(Window window, u32 scale)
 {
    u32 width = RESOLUTION_BASE_WIDTH << scale;
@@ -155,7 +155,7 @@ linux_set_resolution_scale(Window window, u32 scale)
    XResizeWindow(linux_global_display, window, width, height);
 }
 
-static Window
+function Window
 linux_create_window(struct pixel_bitmap bitmap, XVisualInfo *visual_info)
 {
    Display *display = linux_global_display;
@@ -223,7 +223,7 @@ linux_create_window(struct pixel_bitmap bitmap, XVisualInfo *visual_info)
    return(window);
 }
 
-static Window
+function Window
 linux_initialize_opengl(struct pixel_bitmap bitmap)
 {
    // TODO(law): Better checking for available GL extensions.
@@ -340,7 +340,7 @@ linux_initialize_opengl(struct pixel_bitmap bitmap)
    return(window);
 }
 
-static void
+function void
 linux_display_bitmap(Window window, struct pixel_bitmap bitmap)
 {
    struct linux_window_dimensions dimensions;
@@ -351,7 +351,7 @@ linux_display_bitmap(Window window, struct pixel_bitmap bitmap)
    glXSwapBuffers(linux_global_display, window);
 }
 
-static void
+function void
 linux_process_input(Window window, XEvent event)
 {
    // Keyboard handling:
@@ -442,7 +442,7 @@ linux_process_input(Window window, XEvent event)
    }
 }
 
-static void
+function void
 linux_process_events(Window window)
 {
    Display *display = linux_global_display;

@@ -69,11 +69,11 @@ typedef   void opengl_function_glBufferData(GLenum target, GLsizeiptr size, cons
    OPENGL_FUNCTION_POINTERS
 #undef X
 
-static GLuint opengl_global_vertex_buffer_object;
-static GLuint opengl_global_vertex_array_object;
-static GLuint opengl_global_shader_program;
+global GLuint opengl_global_vertex_buffer_object;
+global GLuint opengl_global_vertex_array_object;
+global GLuint opengl_global_shader_program;
 
-static const char *vertex_shader_code =
+global const char *vertex_shader_code =
 "#version 330 core\n"
 "\n"
 "layout(location = 0) in vec2 position;\n"
@@ -86,7 +86,7 @@ static const char *vertex_shader_code =
 "   fragment_texture_coordinate = vertex_texture_coordinate;\n"
 "}\n";
 
-static const char *fragment_shader_code =
+global const char *fragment_shader_code =
 "#version 330 core\n"
 "\n"
 "in vec2 fragment_texture_coordinate;\n"
@@ -98,7 +98,7 @@ static const char *fragment_shader_code =
 "   output_color = texture(bitmap_texture, fragment_texture_coordinate);\n"
 "}\n";
 
-static void
+function void
 opengl_initialize()
 {
    platform_log("=====\n");
@@ -230,7 +230,7 @@ opengl_initialize()
    glDeleteShader(fragment_shader);
 }
 
-static void
+function void
 opengl_display_bitmap(struct pixel_bitmap *bitmap, u32 client_width, u32 client_height)
 {
    float client_aspect_ratio = (float)client_width / (float)client_height;
